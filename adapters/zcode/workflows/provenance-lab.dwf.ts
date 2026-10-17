@@ -1,11 +1,11 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线（玻璃箱+受控白话层）：全流程 +
-  六独立服务；三行式通俗注释与白话导读遵循受控白话层（短句/单句单概念/一词一义/祈使句核对动作，理念受 ASD-STE100
-  启发规则自写）；参与式检查点；文献状态硬关卡；natural-voice 语态；输入全可选；多语言。
+description: ProvenanceLab 溯源科研流水线（玻璃箱+评测内建）：全流程 + 六独立服务 + L0 遥测（99-metrics.json
+  落盘与返回，配合 evaluation/ 植错测试集形成评测闭环）+ 玻璃箱三件套 + 受控白话层 + 文献状态硬关卡 + natural-voice +
+  输入全可选 + 多语言。
 args:
   checkpoints:
     type: string
-    description: 【可选，玻璃箱】参与式检查点："sap" / "sap,draft"；说"继续"零成本续跑
+    description: 【可选，玻璃箱】参与式检查点："sap" / "sap,draft"
     required: false
     default: ""
   dataPath:
@@ -15,7 +15,8 @@ args:
     default: ""
   draftPath:
     type: string
-    description: 【仅 citation-audit / review】稿件路径
+    description: 【仅 citation-audit / review】稿件路径（评测时指向
+      evaluation/citation-error-cases/seeded-draft.md）
     required: false
     default: ""
   externalDir:
@@ -350,6 +351,8 @@ interface WorkflowReport {
   }[];
   verified: string[];
   notCovered: string[];
+  /** 运行遥测指标（L0 评测基线，跨运行可比）。 */
+  metrics?: Record<string, unknown>;
 }
 
 const topic = String(args.topic ?? "").trim();
@@ -910,8 +913,21 @@ const archivist = agent("审计整理员", {
     `② ${OUT}/05-audit-trail.md——六部分：(a) Mermaid flowchart TD 流程图，每个节点标注「做了什么+为何这么做」，关卡节点单独形状；(b) 变量字典表（变量/操作定义/来源列/变换规则/选取理由，取自 SAP 的 variables，逐条照抄不得改写）；(c) 分析方法决策表（方法/选择依据（SAP 的 methodRationale）/执行情况（分析的 decisions）三列对齐）；(d) 引文深审明细表（照抄 05a 文件的逐条判定：溯源/原文位置/准确性/必要性）；(e) 各关卡结论一览（引文核查、统计审稿、同行评审、答辩拷问、引文深审的结论与遗留）；(f) 白话导读：每一部分开头加「通俗导读」框（白话遵循 natural-voice Part 4 受控白话层：短句、单句单概念、一词一义）——用生活类比解释本部分在做什么、为什么、结果意味着什么（初高中可懂、不失真），并为每个关键结论配「亲手验证动作」（打开哪个文件、看哪个数字、和哪里对）；(g) 人工校对指引：建议按什么顺序核对哪些文件、每处核对对应哪个文件哪一节；(h) 免责声明。\n` +
     "所有内容必须取自工作区真实文件与本次结构化输入，禁止添加未发生的事项或美化结论。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
 });
+// L0 遥测：落盘 99-metrics.json，跨运行汇总成质量基线（与 evaluation/ 评测协议配套）
+const metricsPartial = {
+  mode,
+  integrityMode,
+  teamProfile,
+  evidenceIncluded: evidence.included.length,
+  citationGate: { checked: citation.checked, passed: citation.passed, failures: citationFailures.length },
+  statsReview: { verdict: statsReview.verdict, rounds: statsRound },
+  peerReview: { rounds: round, openMajors: openMajors.length },
+  grill: { questions: grill.length, unanswered: rebuttal.unanswered.length },
+  citationAudit: { entries: citationAudit.entries.length, problems: citationAudit.problems },
+  papers: { downloaded: library.downloaded.length, notDownloaded: library.notDownloaded.length },
+};
 const auditPack = await archivist.ask<AuditPack>(
-  `立题：${JSON.stringify({ question: finalRq.question, design: finalRq.design, guideline: finalRq.guideline })}\nSAP（含变量字典与方法依据）：${JSON.stringify(sap)}\n分析（含执行决定）：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, reproducibility: analysis.reproducibility })}\n关卡结论：引文核查 ${citation.passed ? "通过" : citation.failures.join("；")}；统计审稿 ${statsReview.verdict}；同行评审 ${round} 轮遗留 ${openMajors.length} 项；答辩拷问 ${rebuttal.unanswered.length} 问待补；引文深审 ${citationAudit.entries.length} 条遗留 ${citationAudit.problems} 条（明细文件 ${citationAudit.auditPath}，逐条照抄进 (d)）\n产物路径：立题书/证据表/SAP/分析输出/初稿/回应信/引文深审明细/文献 PDF（papers/）/文献归档清单（08）均在 ${OUT}/ 下（逐个 ls 核实后写进 README 目录树）\n请写出两个文件并返回。${langNote}`,
+  `立题：${JSON.stringify({ question: finalRq.question, design: finalRq.design, guideline: finalRq.guideline })}\nSAP（含变量字典与方法依据）：${JSON.stringify(sap)}\n分析（含执行决定）：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, reproducibility: analysis.reproducibility })}\n关卡结论：引文核查 ${citation.passed ? "通过" : citation.failures.join("；")}；统计审稿 ${statsReview.verdict}；同行评审 ${round} 轮遗留 ${openMajors.length} 项；答辩拷问 ${rebuttal.unanswered.length} 问待补；引文深审 ${citationAudit.entries.length} 条遗留 ${citationAudit.problems} 条（明细文件 ${citationAudit.auditPath}，逐条照抄进 (d)）\n产物路径：立题书/证据表/SAP/分析输出/初稿/回应信/引文深审明细/文献 PDF（papers/）/文献归档清单（08）均在 ${OUT}/ 下（逐个 ls 核实后写进 README 目录树）；另把以下运行指标原样写入 ${OUT}/99-metrics.json（JSON，不得增删改字段值）：${JSON.stringify(metricsPartial)}\n请写出两个文件并返回。${langNote}`,
 );
 stage("审计包", "通过");
 record(`审计包就绪：${auditPack.manifestPath} 与 ${auditPack.auditPath}`);
@@ -964,7 +980,16 @@ if (abstractOnlyCount > 0) notCovered.push(`引文深审中 ${abstractOnlyCount}
 for (const u of rebuttal.unanswered) notCovered.push(`答辩拷问待补项：${u.split("\n")[0]}`);
 if (library.notDownloaded.length > 0) notCovered.push(`${library.notDownloaded.length} 篇引用无合法免费全文（付费墙），已列入 08 清单（Vancouver 格式+获取途径），请自行下载后放入 ${OUT}/papers/`);
 const shortTopic = [...finalRq.question].slice(0, 60).join("");
+const runMetrics = {
+  ...metricsPartial,
+  citationAudit: { ...metricsPartial.citationAudit, abstractOnly: citationAudit.entries.filter((e) => e.resolvedSource.includes("摘要")).length },
+  reproducibility: analysis.reproducibility,
+  realData: analysis.realData,
+  findingsTotal: findings.length,
+  notCoveredTotal: notCovered.length,
+};
 return {
+  metrics: runMetrics,
   conclusion: `「${shortTopic}」完成科研流水线：立题通过评审，纳入 ${evidence.included.length} 篇证据，分析${analysis.realData ? "基于真实数据" : "为模拟演示"}，统计审稿 ${statsReview.verdict}，同行评审 ${round} 轮、答辩拷问 ${grill.length} 问、引文深审 ${citationAudit.entries.length} 条后${openMajors.length === 0 && rebuttal.unanswered.length === 0 && citationAudit.problems === 0 ? "无遗留问题" : `遗留 ${openMajors.length + rebuttal.unanswered.length + citationAudit.problems} 项`}。初稿、回应信、审计包与全部中间产物已交付。`,
   findings,
   verified,

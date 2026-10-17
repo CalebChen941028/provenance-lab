@@ -104,6 +104,13 @@ bash install.sh     # 自动探测 ZCode / Claude Code / Codex 并安装对应�
 - AI 辅助写作按 ICMJE/目标期刊政策如实披露
 - 报告规范（CONSORT/STROBE/PRISMA 等）仅按名称引用，不内嵌版权文本（见 NOTICE）
 
+## 评测（How it is measured）
+
+口号要求 every claim stands scrutiny，评测体系自身也一样：
+
+- **L0 遥测**：每次运行自动落盘 `99-metrics.json`（关卡通过率/退回轮数/深审统计），跨运行成基线，优化合入以指标不恶化为条件
+- **L1 植错测试集**：`evaluation/` 提供 11 例已知问题引用（编造/撤稿/夸大/张冠李戴/二手充一手/错位/更正）+ 干净对照与期望判定——一条命令测引文深审的敏感度/特异度；协议见 [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+
 ## 路线图
 
 - **v1.1 神经影像模块（EEG / fNIRS）**：预处理+ERP/频域+cluster 级校正（EEG）；探头几何/MBLL/GLM（fNIRS）。以领域关卡保证质量——领域 SAP 模板冻结方法学决策点、领域审稿人、高维多重比较进预注册

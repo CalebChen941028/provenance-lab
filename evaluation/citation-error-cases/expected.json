@@ -1,0 +1,102 @@
+{
+  "version": "0.1",
+  "description": "ProvenanceLab 引文深审植错测试集期望判定。verification=verify 的案例须在首次计分前人工核验 ground truth（PubMed 出版类型 / Crossref Retraction Watch）。",
+  "problem_case_pass_rule": "问题案例（S1-S10）计为检出 = 05a 中该条被判为问题（任一维度不达标），且 expected 中给出的具体维度判定一致",
+  "clean_case_pass_rule": "S11 未被误报为问题（isPrimary=primary、accuracy=supported、necessity=necessary、retractionStatus=clean）",
+  "cases": [
+    {
+      "id": "S1",
+      "error_type": "fabricated_reference",
+      "claim": "十年队列证实屏幕暴露损害睡眠轨迹",
+      "expected": { "isPrimary": "untraceable" },
+      "ground_truth": "PMID 99999999 不存在于 PubMed；2031 年为未来年份",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S2",
+      "error_type": "fabricated_reference",
+      "claim": "数字睡眠干预随机试验",
+      "expected": { "isPrimary": "untraceable" },
+      "ground_truth": "DOI 10.1093/fake/journal-2099 为编造，无法解析",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S3",
+      "error_type": "retracted_cited_as_evidence",
+      "claim": "MMR 疫苗与自闭症联系",
+      "expected": { "retractionStatus": "retracted", "accuracy": "unsupported" },
+      "ground_truth": "Wakefield 1998（PMID 9500320）已于 2010 年被 Lancet 撤稿；作为证据引用必须被拒",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S4",
+      "error_type": "retracted_cited_as_evidence",
+      "claim": "STAP 现象",
+      "expected": { "retractionStatus": "retracted" },
+      "ground_truth": "Obokata et al. Nature 2014（doi:10.1038/nature12997）已撤稿",
+      "verification": "verify"
+    },
+    {
+      "id": "S5",
+      "error_type": "overstated_causal_claim",
+      "claim": "交叉滞后研究'证明了因果性导致'",
+      "expected": { "accuracy": "overstated" },
+      "ground_truth": "PMID 34299887 为双向交叉滞后（PSU→睡眠与睡眠→PSU 并存）；'证明因果性导致'的单向断言超出证据",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S6",
+      "error_type": "overstated_mechanism_claim",
+      "claim": "横断面研究'直接证明神经机制损害'",
+      "expected": { "accuracy": "overstated" },
+      "ground_truth": "PMID 35149136 为横断面相关（r≈0.30）；不能支撑机制或因果断言",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S7",
+      "error_type": "misattribution",
+      "claim": "将双向纵向发现归于横断面文献",
+      "expected": { "accuracy": "unsupported" },
+      "ground_truth": "PMID 35149136（横断面）不含'睡眠预测后续 PSU'的纵向发现（出自 PMID 34299887）",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S8",
+      "error_type": "secondhand_as_primary",
+      "claim": "meta 分析被称为'原始队列研究'",
+      "expected": { "isPrimary": "secondary-needs-tracing" },
+      "ground_truth": "doi:10.1371/journal.pone.0157888 为 meta 分析（二手合成），非原始队列",
+      "verification": "verify"
+    },
+    {
+      "id": "S9",
+      "error_type": "wrong_context_citation",
+      "claim": "与睡眠/PSU 无关的治疗依从性陈述挂引用",
+      "expected": { "necessity": "wrong-context" },
+      "ground_truth": "PMID 34299887 内容与'抑郁数字化干预依从性'无关",
+      "verification": "confirmed"
+    },
+    {
+      "id": "S10",
+      "error_type": "corrected_publication",
+      "claim": "如实引用的更正状态文献",
+      "expected": { "retractionStatus": "corrected" },
+      "ground_truth": "PMID 40328832 为出版者更正（Correction: PMID 40506455）；规则=保留引用但注明引用更正后版本，不应判为问题引用",
+      "verification": "verify",
+      "pass_rule": "该条不应被计为问题（corrected 属可保留），但须在明细中被标注为 corrected"
+    },
+    {
+      "id": "S11",
+      "error_type": "clean_control",
+      "claim": "横断面相关 r≈0.30 的准确描述",
+      "expected": { "isPrimary": "primary", "accuracy": "supported", "necessity": "necessary", "retractionStatus": "clean" },
+      "ground_truth": "对 PMID 35149136 的准确、适度引用",
+      "verification": "confirmed"
+    }
+  ],
+  "scoring": {
+    "sensitivity": "检出问题案例数 / 10（S1-S10；S10 按其特殊 pass_rule 计）",
+    "specificity": "干净对照未误报（0 或 1）",
+    "additional": "记录各案例 resolvedSource 的全文/摘要层级；正式记录报 3 次运行均值±范围"
+  }
+}
