@@ -20,6 +20,8 @@ Copyright 2026 provenance-lab contributors. Licensed under the Apache License, V
 | [mattpocock/skills（grill-me / grilling）](https://github.com/mattpocock/skills) | 见其仓库 | 一次一问+推荐答案的拷问式访谈、答辩拷问思想 |
 | [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills) | Apache-2.0（代码）/ CC-BY-4.0（内容） | 运行时可选依赖：文献/数据库检索技能（本项目不再分发其内容） |
 
+受控白话层的理念受 ASD-STE100 简化技术英语启发；该规范为 ASD（AeroSpace and Defence Industries Association of Europe）版权所有，本仓库**未采用其任何规则文本或词库内容**，仅借鉴受控语言的一般原则并自写实现。
+
 技能文件格式遵循开放的 [Agent Skills](https://agentskills.io) 规范（SKILL.md + YAML frontmatter）。
 
 ## 版权边界声明
