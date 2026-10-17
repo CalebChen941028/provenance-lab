@@ -1,11 +1,17 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线（多模式）：全流程 +
-  六种独立服务。学术规范内建：工具定位声明贯穿全部交付物（科研提效工具不保障百分百真实完美，须用户人工审核与专业取舍）；文献状态异常核查硬关卡；引用按相关性与证据质量排序不按声望；AI
-  使用声明自动生成；引文五维深审；natural-voice 语态；输入全可选；多语言。
+description: ProvenanceLab 溯源科研流水线（玻璃箱版）：全流程 + 六独立服务 +
+  玻璃箱三件套（三行式通俗注释/白话导读与验证动作/参与式检查点）破解黑箱不信任；文献状态硬关卡、引用不按声望排序、AI
+  声明自动生成、natural-voice 语态、输入全可选、多语言。
 args:
+  checkpoints:
+    type: string
+    description: 【可选，玻璃箱】参与式检查点："sap"（SAP 定稿后暂停人工审阅）或
+      "sap,draft"（再加初稿后暂停）；说"继续"零成本续跑。建议首次使用者开启
+    required: false
+    default: ""
   dataPath:
     type: string
-    description: 【可选】数据集路径；cross-validate 下提供则可完整重算
+    description: 【可选】数据集路径
     required: false
     default: ""
   draftPath:
@@ -419,6 +425,8 @@ const externalDirArg = String(args.externalDir ?? "").trim();
 const figureStyleJournal = String(args.figureStyleJournal ?? "").trim();
 const journalGuideUrl = String(args.journalGuideUrl ?? "").trim();
 const figurePolish = String(args.figurePolish ?? "true") !== "false";
+// 参与式检查点（玻璃箱）：在关键决策点暂停等待人工审阅放行，破解黑箱不信任；续跑由助手编辑运行脚本后 AmendWorkflow（已完成步骤缓存零成本导入）
+const checkpoints = String(args.checkpoints ?? "").trim();
 const privateLibraryPathArg = String(args.privateLibraryPath ?? "").trim();
 const styleTarget = figureStyleJournal || targetJournals || "Nature";
 const FIGURE_SYSTEM =
@@ -681,19 +689,28 @@ phase("预注册式统计分析计划");
 stage("统计计划", "进行中");
 const statistician = agent("统计方法学家", {
   system:
-    "你是生物统计方法学家。在看到任何结果之前预注册式地制定统计分析计划（SAP）：主要结局与主分析、次要与敏感性分析、效应量指标、α 水平与多重比较校正（Bonferroni/FDR）、缺失数据处理、样本量/效能、前提假设及检验方法。心理领域遵循 APA 效应量报告惯例（Cohen's d、η² 等），流行病学报告 RR/OR/HR 及 95% CI。你此刻不知道任何结果——这是刻意设计，用于杜绝 p-hacking。另须产出两份供人工校对的内容：①变量字典——每个进入分析的变量给出 名称/操作定义/数据来源列/变换规则/选取理由（含考虑过但排除的候选变量及原因）；②方法依据表——每个分析方法一条选择依据（为何用它、不用什么替代）。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。SAP 文首注明：本文件为预注册式内控文档，不等同于注册库预注册；研究需正式预注册时应提交 PROSPERO（系统综述）/OSF（原始研究）等平台并在文中引用注册号。把 SAP 写入文件后返回。",
+    "你是生物统计方法学家。在看到任何结果之前预注册式地制定统计分析计划（SAP）：主要结局与主分析、次要与敏感性分析、效应量指标、α 水平与多重比较校正（Bonferroni/FDR）、缺失数据处理、样本量/效能、前提假设及检验方法。心理领域遵循 APA 效应量报告惯例（Cohen's d、η² 等），流行病学报告 RR/OR/HR 及 95% CI。你此刻不知道任何结果——这是刻意设计，用于杜绝 p-hacking。另须产出两份供人工校对的内容：①变量字典——每个进入分析的变量给出 名称/操作定义/数据来源列/变换规则/选取理由（含考虑过但排除的候选变量及原因）；②方法依据表——每个分析方法一条选择依据（为何用它、不用什么替代）；③白话层——每个方法与每个变量附一句不使用术语的白话解释（初高中文化程度可懂，可用生活类比但不失真），让非统计背景研究者能读懂「我们在做什么、为什么」。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。SAP 文首注明：本文件为预注册式内控文档，不等同于注册库预注册；研究需正式预注册时应提交 PROSPERO（系统综述）/OSF（原始研究）等平台并在文中引用注册号。把 SAP 写入文件后返回。",
 });
 const sap = await statistician.ask<StatPlan>(
   `研究问题：${finalRq.question}\n设计与假设：${finalRq.design}；${finalRq.hypotheses.join("；")}\n数据条件：${dataPath ? `真实数据 ${dataPath}` : "模拟数据演示"}\n证据表要点：${JSON.stringify(evidence.included.slice(0, 8))}\n把 SAP 写入 ${OUT}/03-sap.md 并返回。${langNote}`,
 );
 stage("统计计划", "通过");
 record(`SAP 定稿：主分析 ${sap.primaryAnalysis.split("。")[0]}；校正 ${sap.corrections}`);
+if (checkpoints.includes("sap")) {
+  log("检查点暂停：SAP 已定稿，等待人工审阅后继续");
+  return {
+    conclusion: `参与式检查点暂停：预注册式统计计划已定稿（${sap.sapPath}，含变量字典、方法依据与白话层）。请审阅——重点核对变量字典的选取理由与方法依据表。审阅后对助手说"继续"，助手将编辑运行脚本移除本检查点并续跑（已完成步骤零成本导入，从分析执行阶段继续）。`,
+    findings: [],
+    verified: ["立题经换人评审", `证据表 ${evidence.included.length} 篇经引文核查与状态审计", "SAP 已定稿（含白话层）`],
+    notCovered: ["分析及之后所有阶段待检查点放行后继续"],
+  };
+}
 
 phase("执行分析与复现关卡");
 stage("分析执行", "进行中");
 const analyst = agent("数据分析员", {
   system:
-    `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只写脚本打印 schema（列名/类型/行数/缺失概况），此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。把脚本与输出写入目录后返回。`,
+    `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只写脚本打印 schema（列名/类型/行数/缺失概况），此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。通俗注释铁律（玻璃箱）：每个主要代码块（数据清洗、建模、每张图表）上方必须有三行注释——【做什么】一句白话（初高中可懂）；【为什么】方法学理由与对应的研究假设/变量；【怎么核对】指出本块输出对应哪个文件哪个数字，供非代码背景研究者逐块人工校对。把脚本与输出写入目录后返回。`,
 });
 const analysis = await analyst.ask<AnalysisResult>(
   `SAP：${JSON.stringify(sap)}\n数据：${dataPath || "无（模拟演示）"}\n输出目录：${OUT}/04-analysis/（脚本、tables/、figures/）。完成后自行重跑一次脚本确认退出码 0，并写进 reproducibility。${langNote}`,
@@ -772,6 +789,15 @@ let draft = await writer.ask<DraftResult>(
   `立题书：${JSON.stringify(finalRq)}\n证据表（引用白名单）：${JSON.stringify(evidence.included)}\nSAP：${JSON.stringify(sap)}\n分析结果：${JSON.stringify(analysis)}\n统计审稿遗留问题（写作时注意）：${JSON.stringify(statsReview)}\n目标期刊：${finalRq.journals.join("、")}\n把初稿写入 ${OUT}/06-draft.md 并返回。${langNote}`,
 );
 stage("论文撰写", "通过");
+if (checkpoints.includes("draft")) {
+  log("检查点暂停：初稿完成，等待人工审阅后继续");
+  return {
+    conclusion: `参与式检查点暂停：论文初稿已完成（${draft.draftPath}，含 AI 使用声明与白话注释的分析）。请审阅初稿与 ${OUT}/04-analysis/ 中带通俗注释的脚本。审阅后对助手说"继续"，助手将编辑运行脚本移除本检查点并续跑（从同行评审阶段继续，已完成步骤零成本导入）。`,
+    findings: [],
+    verified: ["全流程至初稿完成", `分析脚本含三行式通俗注释（做什么/为什么/怎么核对）`],
+    notCovered: ["同行评审、答辩拷问、引文深审、文献归档、审计包待检查点放行后继续"],
+  };
+}
 
 phase("同行评审模拟与修订");
 stage("同行评审", "进行中");
@@ -882,7 +908,7 @@ const archivist = agent("审计整理员", {
   system:
     "你把整个流水线整理成『人工校对包』，目的是让研究者能逐一快速核对、防 AI 幻觉导致学术不端。产出两个文件：\n" +
     `① ${OUT}/00-README.md——目录树 + 每个文件一句话说明 + 三份清单：动了什么（仅 ${OUT}/ 产物）、没动什么（原始数据与数据集文件夹其余内容只读）、去哪找什么；末尾放免责声明（含工具定位声明：工具定位声明：本流水线是科研提效工具，与任何工具一样不保证产出百分之百真实、正确或完整；所有结论、数据、引文与文本必须经用户人工审核，并由具备专业能力的研究者从专业层面取舍与负责；AI 不能替代同行评审、伦理审查与作者的学术责任。）。\n` +
-    `② ${OUT}/05-audit-trail.md——六部分：(a) Mermaid flowchart TD 流程图，每个节点标注「做了什么+为何这么做」，关卡节点单独形状；(b) 变量字典表（变量/操作定义/来源列/变换规则/选取理由，取自 SAP 的 variables，逐条照抄不得改写）；(c) 分析方法决策表（方法/选择依据（SAP 的 methodRationale）/执行情况（分析的 decisions）三列对齐）；(d) 引文深审明细表（照抄 05a 文件的逐条判定：溯源/原文位置/准确性/必要性）；(e) 各关卡结论一览（引文核查、统计审稿、同行评审、答辩拷问、引文深审的结论与遗留）；(f) 人工校对指引：建议按什么顺序核对哪些文件、每处核对对应哪个文件哪一节；(g) 免责声明。\n` +
+    `② ${OUT}/05-audit-trail.md——六部分：(a) Mermaid flowchart TD 流程图，每个节点标注「做了什么+为何这么做」，关卡节点单独形状；(b) 变量字典表（变量/操作定义/来源列/变换规则/选取理由，取自 SAP 的 variables，逐条照抄不得改写）；(c) 分析方法决策表（方法/选择依据（SAP 的 methodRationale）/执行情况（分析的 decisions）三列对齐）；(d) 引文深审明细表（照抄 05a 文件的逐条判定：溯源/原文位置/准确性/必要性）；(e) 各关卡结论一览（引文核查、统计审稿、同行评审、答辩拷问、引文深审的结论与遗留）；(f) 白话导读：每一部分开头加「通俗导读」框——用生活类比解释本部分在做什么、为什么、结果意味着什么（初高中可懂、不失真），并为每个关键结论配「亲手验证动作」（打开哪个文件、看哪个数字、和哪里对）；(g) 人工校对指引：建议按什么顺序核对哪些文件、每处核对对应哪个文件哪一节；(h) 免责声明。\n` +
     "所有内容必须取自工作区真实文件与本次结构化输入，禁止添加未发生的事项或美化结论。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
 });
 const auditPack = await archivist.ask<AuditPack>(
