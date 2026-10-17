@@ -76,6 +76,14 @@ Optional: [google-deepmind/science-skills](https://github.com/google-deepmind/sc
 
 **Standalone modes** (no full run needed): `figure-polish` · `citation-audit` (existing draft) · `review` (peer-review simulation) · `cross-validate` (independent verification of analysis produced elsewhere: re-run their scripts + recompute key statistics + statistical review) · `audit-pack`.
 
+## Quota resilience & auto-resume
+
+Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pipelines. ProvenanceLab's answer:
+
+- **Transient rate limits**: the runtime retries with backoff automatically
+- **Deterministic quota stops (with reset time)**: the skill schedules a one-shot automation at the reset time to **auto-resume the run** (finished steps replay at zero cost), or immediately switches the heavy tier to an alternate provider with an independent quota pool
+- **Heavy users**: point the heavy tier at a pay-as-you-go (direct API) provider — it only interrupts on insufficient balance
+
 ## Ethics & compliance
 
 - Input data must be **de-identified**; all analysis runs locally under a code-to-data rule (raw rows never enter model context); nothing is collected or transmitted by this project
