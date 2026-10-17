@@ -83,6 +83,7 @@ Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pip
 - **Transient rate limits**: the runtime retries with backoff automatically
 - **Deterministic quota stops (with reset time)**: the skill schedules a one-shot automation at the reset time to **auto-resume the run** (finished steps replay at zero cost), or immediately switches the heavy tier to an alternate provider with an independent quota pool
 - **Heavy users**: point the heavy tier at a pay-as-you-go (direct API) provider — it only interrupts on insufficient balance
+- **Note**: no advance warning exists — quota errors (1308) only fire at exhaustion, and the window is account-shared, so remaining quota cannot be estimated by the agent
 
 ## Ethics & compliance
 
