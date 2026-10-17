@@ -1,7 +1,7 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线（学术呈现规范版）：全部正式交付物强制编号章节、编号图表配规范表头图注、Vancouver
-  文献、APA/JARS 统计量格式、结构式摘要、正式书面语（禁零散碎片化）；含过拟合防控六项、L0 遥测、L1
-  植错集、玻璃箱三件套、受控白话层、文献状态硬关卡、六独立服务模式、多语言。
+description: ProvenanceLab 溯源科研流水线（优化 v1）：检索两段式题录先行（禁全量摘要）、立题勘察预算（摘要级≤8
+  篇）、引文关卡题录+摘要级（全文留深审）、长计算分块+心跳日志、写作员改传文件路径不传全量 JSON。严谨度不变（全文深比对/全量记录 count
+  均保留），token 预期降 40-60%。含学术呈现 D17、过拟合防控 D16、L0 遥测、玻璃箱、六独立服务、多语言。
 args:
   checkpoints:
     type: string
@@ -565,7 +565,7 @@ phase("立题：凝练研究问题与设计");
 stage("立题", "进行中");
 const pi = agent("选题主席", {
   system:
-    "你是资深临床研究选题主席（临床医学/流行病学/心理学），站在 PI 视角把模糊想法凝练成可执行研究。产出必须包含 PICO/PECO 结构、可检验假设、匹配的研究设计、对应报告规范（观察性=STROBE、RCT=CONSORT、系统综述=PRISMA、心理测量按 APA/心理领域惯例）、FINER 评估与新颖性定位、2-3 本目标期刊。设计要与可获得的数据条件匹配，不要承诺做不到的事。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。立题书按学术文档组织（研究背景与立题依据/研究问题与假设（PICO 表）/设计与报告规范/目标期刊/参考文献 五章编号）。把完整立题书写入工作区文件。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
+    "你是资深临床研究选题主席（临床医学/流行病学/心理学），站在 PI 视角把模糊想法凝练成可执行研究。勘察预算（token 纪律）：背景文献只读摘要级（≤8 篇），校准用效应量从检索摘要或用户证据取；立题阶段禁止全文深读（全文阅读是 S2/S7.5 专职角色的职责）。产出必须包含 PICO/PECO 结构、可检验假设、匹配的研究设计、对应报告规范（观察性=STROBE、RCT=CONSORT、系统综述=PRISMA、心理测量按 APA/心理领域惯例）、FINER 评估与新颖性定位、2-3 本目标期刊。设计要与可获得的数据条件匹配，不要承诺做不到的事。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。立题书按学术文档组织（研究背景与立题依据/研究问题与假设（PICO 表）/设计与报告规范/目标期刊/参考文献 五章编号）。把完整立题书写入工作区文件。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
 });
 const rq = await pi.ask<ResearchQuestion>(
   `研究方向（用户原话）：${topic}\n领域设定：${field}${field === "auto" ? "（由你判定，必须填入返回结果的 field 字段：clinical/epidemiology/psychology）" : ""}\n数据条件：${dataPath ? `用户提供数据：${dataPath}` : "暂无真实数据，分析阶段将用固定种子模拟数据演示（立题时按此现实约束设计）"}\n${targetJournals ? `用户期刊偏好：${targetJournals}\n` : ""}必要时可读取 ${SKILLS} 下的相关技能文件辅助（如 pubmed_database、clinical_trials_database）获取背景。请产出立题书并写入 ${OUT}/01-research-question.md（自建目录），同时按接口返回结构化结果。${langNote}`,
@@ -626,7 +626,7 @@ const searchReports = await Promise.all(
   sources.map((src) =>
     agent(`检索-${src.name}`, {
       system:
-        `你是文献检索员。${src.dir ? `先读 ${SKILLS}/${src.dir}/SKILL.md，严格按该技能的方法与脚本执行检索（本机已安装）。` : `本源没有本机技能：直接调用其官方 API（${src.hint}），遵守其条款与限流。`}构建规范检索式，围绕研究问题召回最相关的文献。合法性铁律：只用官方 API 或开放接口，禁止爬取 Google Scholar 或任何违反服务条款的站点；订阅库（Scopus/WoS/Embase/PsycINFO）无用户机构凭据时跳过并如实说明。逐条给出 PMID/DOI、标题、年份、设计、与问题相关的核心发现。检索失败时如实说明，不要编造文献。`,
+        `你是文献检索员。${src.dir ? `先读 ${SKILLS}/${src.dir}/SKILL.md，严格按该技能的方法与脚本执行检索（本机已安装）。` : `本源没有本机技能：直接调用其官方 API（${src.hint}），遵守其条款与限流。`}构建规范检索式，两段式检索（token 纪律）：①先取按相关性排序的题录列表（sort=relevance），命中总数用数据库 count 字段记录，**禁止全量取回摘要**；②仅对前 40 条题录取摘要精选，返回至多 20 条最相关文献。合法性铁律：只用官方 API 或开放接口，禁止爬取 Google Scholar 或任何违反服务条款的站点；订阅库（Scopus/WoS/Embase/PsycINFO）无用户机构凭据时跳过并如实说明。逐条给出 PMID/DOI、标题、年份、设计、与问题相关的核心发现。检索失败时如实说明，不要编造文献。`,
       ...(lightSearch ? lightTier : {}),
     }).ask<SearchReport>(
       `研究问题：${finalRq.question}\nPICO：P=${finalRq.population}；I/E=${finalRq.exposure}；C=${finalRq.comparator}；O=${finalRq.outcome}\n领域：${fieldKey}\n请检索并返回至多 20 条最相关文献。`,
@@ -671,7 +671,7 @@ phase("引文核查关卡");
 stage("引文核查", "进行中");
 const citationChecker = agent("引文核查员", {
   system:
-    `你是引文核查员（PaperQA2 式落地核查 + 文献状态审计）。先读 ${SKILLS}/pubmed_database/SKILL.md 与 ${SKILLS}/literature_search_openalex/SKILL.md，用其方法逐条核验：①PMID/DOI 能否定位到真实论文；②题录信息（标题/年份/设计）是否相符；③我们写的核心发现是否与原文摘要一致；④状态审计：用 OpenAlex 的 is_retracted 字段、PubMed 出版类型标签（Retracted Publication / Expression of Concern / Correction）及 Crossref Retraction Watch 开放库（api.labs.crossref.org/retractions）核查撤稿/关注/更正状态，写入 status。抽查至少 8 条或全部（不足 8 条时全查），状态审计覆盖全部纳入文献。发现失败项与异常状态文献（retracted/concern）如实列出，不要放水，也不要改任何文件。`,
+    `你是引文核查员（PaperQA2 式落地核查 + 文献状态审计）。先读 ${SKILLS}/pubmed_database/SKILL.md 与 ${SKILLS}/literature_search_openalex/SKILL.md，用其方法逐条核验：①PMID/DOI 能否定位到真实论文；②题录信息（标题/年份/设计）是否相符；③我们写的核心发现是否与原文摘要一致；④状态审计：用 OpenAlex 的 is_retracted 字段、PubMed 出版类型标签（Retracted Publication / Expression of Concern / Correction）及 Crossref Retraction Watch 开放库（api.labs.crossref.org/retractions）核查撤稿/关注/更正状态，写入 status。核对层级=题录+摘要级（token 纪律：本关卡不取全文，全文级深比对是 S7.5 引文深审的职责；状态审计只用 API 字段与标签，不下载原文）。抽查至少 8 条或全部（不足 8 条时全查），状态审计覆盖全部纳入文献。发现失败项与异常状态文献（retracted/concern）如实列出，不要放水，也不要改任何文件。`,
 });
 let citation = await citationChecker.ask<CitationCheck>(`证据表纳入文献：${JSON.stringify(evidence.included)}\n请逐条核查并返回结果。`);
 let citationFailures: string[] = citation.passed ? [] : citation.failures;
@@ -711,7 +711,7 @@ phase("执行分析与复现关卡");
 stage("分析执行", "进行中");
 const analyst = agent("数据分析员", {
   system:
-    `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只写脚本打印 schema（列名/类型/行数/缺失概况），此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。通俗注释铁律（玻璃箱，白话遵循 natural-voice 的 Part 4 受控白话层：短句/单句单概念/一词一义/祈使句核对动作）：每个主要代码块（数据清洗、建模、每张图表）上方必须有三行注释——【做什么】一句白话（初高中可懂）；【为什么】方法学理由与对应的研究假设/变量；【怎么核对】指出本块输出对应哪个文件哪个数字，供非代码背景研究者逐块人工校对。把脚本与输出写入目录后返回。`,
+    `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只写脚本打印 schema（列名/类型/行数/缺失概况），此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。长计算分块（每块目标 ≤10 分钟）：蒙特卡洛等重计算按块执行、每块落盘部分结果，并在 ${OUT}/04-analysis/run-heartbeat.log 追加心跳行（块名+时间+一行状态）供外部监测。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。通俗注释铁律（玻璃箱，白话遵循 natural-voice 的 Part 4 受控白话层：短句/单句单概念/一词一义/祈使句核对动作）：每个主要代码块（数据清洗、建模、每张图表）上方必须有三行注释——【做什么】一句白话（初高中可懂）；【为什么】方法学理由与对应的研究假设/变量；【怎么核对】指出本块输出对应哪个文件哪个数字，供非代码背景研究者逐块人工校对。把脚本与输出写入目录后返回。`,
 });
 const analysis = await analyst.ask<AnalysisResult>(
   `SAP：${JSON.stringify(sap)}\n数据：${dataPath || "无（模拟演示）"}\n输出目录：${OUT}/04-analysis/（脚本、tables/、figures/）。完成后自行重跑一次脚本确认退出码 0，并写进 reproducibility。${langNote}`,
@@ -787,7 +787,7 @@ const writer = agent("医学写作者", {
     `你是医学期刊写作者（STORM 式大纲驱动：先定大纲再成文）。**动笔前先读 ${SKILLS}/natural-voice/SKILL.md 并严格执行其语态规范**：去AI腔/去翻译腔/去伪学术黑话；直陈语气、术语全篇统一、数据句式紧贴解释；局限写成适用边界（scope conditions）而非防御性自贬（报告规范要求如实报告的局限仍报告，但用边界语态）；英文写作遵循 Part 2（封锁 AI 高频词、以证据强度选动词、一段一个动作、统计写法带效应量与 CI）；成稿前过其 Part 3 自检清单。按 ${finalRq.guideline} 规范与 IMRaD 结构撰写：引言（ funnel 逻辑，落点在研究空白）、方法（可复现细节，直接引用 SAP 与脚本）、结果（先总体后分层，每个结论带效应量与 95% CI，指向图表${figurePolish ? "，优先引用 figures-polished/ 规范化版本" : ""}）、讨论（结果解释、与证据表内文献逐条对照、局限、意义）。结构式摘要。引用规则：只允许两类引用——已核查证据表内的文献（带 PMID/DOI，或私有库条目的 "私有库:<文件名>" 标注）或本研究自身结果；绝不引入未核查的新文献，绝不编造引文。文献状态纪律：**绝不把撤稿（retracted）或编辑关注（concern）状态的文献作为证据引用**——如确需提及（如讨论该研究被撤稿的启示），必须显式标注其撤稿状态且不作为结论支撑；带更正/勘误（corrected）的文献可引用但注明"本文引用更正后版本"。${analysis.realData ? "" : "全文用模拟数据演示口径撰写，标题页显式标注。"}标题页必须附 AI 使用声明草稿：如实注明本稿件由 AI 辅助生成（文献检索、分析代码、初稿撰写），引用经逐条核查，全部结论需作者人工核验并承担学术责任；具体措辞按目标期刊的 AI 披露政策调整，作者不得删除该声明。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。全文 IMRaD 编号章节+结构式摘要+图表编号引用+回应信用 Reviewer N → Comment N.x → Response 逐条编号格式。把初稿写入文件后返回。`,
 });
 let draft = await writer.ask<DraftResult>(
-  `立题书：${JSON.stringify(finalRq)}\n证据表（引用白名单）：${JSON.stringify(evidence.included)}\nSAP：${JSON.stringify(sap)}\n分析结果：${JSON.stringify(analysis)}\n统计审稿遗留问题（写作时注意）：${JSON.stringify(statsReview)}\n目标期刊：${finalRq.journals.join("、")}\n把初稿写入 ${OUT}/06-draft.md 并返回。${langNote}`,
+  `立题书：${JSON.stringify(finalRq)}\n证据表白名单：见 ${evidence.evidencePath}（纳入 ${evidence.included.length} 篇，逐条从文件读取，禁止引用白名单外文献）\nSAP：见 ${sap.sapPath}（从文件读取变量字典与方法依据）\n分析结果要点：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, scriptPath: analysis.scriptPath, outputsPath: analysis.outputsPath, reproducibility: analysis.reproducibility })}\n统计审稿遗留问题（写作时注意）：${JSON.stringify(statsReview)}\n目标期刊：${finalRq.journals.join("、")}\n把初稿写入 ${OUT}/06-draft.md 并返回。${langNote}`,
 );
 stage("论文撰写", "通过");
 if (checkpoints.includes("draft")) {
