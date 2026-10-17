@@ -1,0 +1,137 @@
+---
+name: provenance-lab
+description: >-
+  科研专家团队（面向临床医学、流行病学、心理学）：选题立题（PICO/FINER + 换人评审）→ 三库并行文献检索
+  （调用本机 google science skills：PubMed/EuropePMC/OpenAlex）→ PRISMA 筛选与证据综合 → 引文逐条核查 →
+  预注册式统计分析计划 → 分析执行与复现关卡 → 统计审稿 → IMRaD 论文初稿 → 同行评审模拟与修订 → 交付。
+  当用户输入 /provenance-lab，或要求"科研团队/研究流水线/选题到初稿"类任务时使用。启动前必须先完成研究访谈。
+---
+
+# ProvenanceLab（溯源科研流水线）— 科研专家团队工作流
+
+> **为真理，不为名利；把繁琐交给机器，让结论经得起推敲。**（Every claim, traceable.）
+
+融合三套本地能力与五个开源项目机制，编排临床医学/流行病学/心理学的完整科研流水线：
+[google-deepmind/science-skills](https://github.com/google-deepmind/science-skills)（文献/数据库检索）、
+boost（换人评审/验证关卡/停滞诊断）、teamwork（事实账本/混合编队/对抗挑战），
+机制借鉴 [AI-Scientist](https://github.com/SakanaAI/AI-Scientist)（新颖性定位+自动审稿）、
+[Agent Laboratory](https://github.com/SamuelSchmidgall/AgentLaboratory)（分阶段专家+人工确认点）、
+[PaperQA2](https://github.com/Future-House/paper-qa)（引文落地核查）、
+[STORM](https://github.com/stanford-oval/storm)（大纲驱动撰写）、
+[AgentReview](https://github.com/ahren09/agentreview)（多评审人+总评审模拟）。
+
+由全局工作流 `provenance-lab`（`~/.zcode/workflows/provenance-lab.dwf.ts`）驱动。
+
+## 功能选项清单（不必每次全流程）
+
+**第 0 步 · 模式选择自动弹窗（AskUserQuestion，两级设计）**：
+
+- 用户话语**已明确指向**某一模式时（如"校验我在 XX 里做的分析"→cross-validate；"把图表按 Cell 规范重绘"→figure-polish；给出研究方向→pipeline），只弹一次确认窗，该模式放第一位并标（推荐），一键确认即启动。
+- 意图**模糊**时弹第一级（header：`运行模式`），选项描述**逐字使用以下文案**（三要素：何时选/做什么/要准备）：
+  1. **pipeline 全流程（推荐）** — 何时选：有一个研究方向（有没有真实数据都行，没有则用固定种子模拟数据演示）。做什么：选题立题→多库文献检索→证据综合→预注册统计计划→数据分析→图表按顶刊规范重绘→论文初稿→同行评审模拟→答辩拷问→引文深审→文献归档→审计包，一条龙到"可投稿前打磨"状态。要准备：一段话研究方向即可，其余全部可选。
+  2. **cross-validate 交叉校验** — 何时选：你已在其他 AI 工具/agent（Claude Code、Codex、自写脚本等）完成分析，想在采用前独立验证真伪与质量。做什么：三重校验——原样复现其脚本、用独立代码重算关键统计量（无原始数据时降级为数值自洽核验）、统计方法学审校；产出逐项 match/mismatch 报告。要准备：分析产物文件夹路径；有原始数据更佳。
+  3. **独立服务（对已有材料）** — 何时选：你已有稿件、图表或流水线产物，只需要其中一项专项服务，不必跑全流程。做什么：见第二级四项。选此项进入第二级。
+  4. （用户也可 Other 直接用自己的话描述需求）
+- 选 3 时弹第二级（header：`独立服务`），四选项描述**逐字使用**：
+  1. **figure-polish 图表美化** — 何时选：图表已生成但不符合目标期刊规范。做什么：按期刊规范（默认 Nature/Cell 系，可提供投稿指南链接定向）逐图审计并重绘：色盲友好配色、89/183mm 栏宽、矢量+高分辨率、分面字母、去图表垃圾；绝不改数值只改呈现，原图保留。要准备：图表文件夹路径。
+  2. **citation-audit 引文深审** — 何时选：稿件写好了（自己写的或 AI 写的都行），担心引用不实。做什么：逐条五维校验——溯源到最原始文献（防二手充一手）、原文位置比对（防夸大/断章取义）、必要性判定（防凑数引用）、撤稿状态审计（Retraction Watch 三源核查）、题录一致性。要准备：稿件文件路径。
+  3. **review 评审模拟** — 何时选：投稿前想预演审稿人会在哪里开火。做什么：1-3 位独立审稿人（方法学/领域/统计）+可选对抗挑战员专攻致命缺陷，产出 major/minor 意见清单。要准备：稿件路径。
+  4. **audit-pack 审计包重建** — 何时选：跑过 provenance-lab 全流程但审计包缺失或想更新。做什么：从产物目录重建 00-README（动了啥/没动啥/在哪）与 05-audit-trail（Mermaid 流程图、变量字典、方法决策表、引文明细）。要准备：产物目录路径。
+
+模式清单：
+
+| 模式 | 用途 | 必要输入 | 可选输入 |
+|---|---|---|---|
+| `pipeline`（默认） | 选题到初稿全流程 | topic | 其余全部可跳过 |
+| `figure-polish` | **只做图表美观审计与重绘**（Nature/Cell 系规范：色盲友好、分面字母、89/183mm 栏宽、矢量+300dpi、去图表垃圾；可按期刊指南定向） | topic（简要说明） | figuresDir（默认用产物目录）、figureStyleJournal、journalGuideUrl、language |
+| `citation-audit` | **只做引文深审**（对已有稿件：溯源/原文比对/必要性） | draftPath、topic | privateLibraryPath、language |
+| `review` | **只做同行评审模拟**（1~3 审+对抗挑战） | draftPath、topic | integrityMode、language |
+| `cross-validate` | **第三方分析产物独立交叉校验**（在别的 agent/工具里做完的分析：原样复现其脚本 + 独立重算关键统计量 + 统计审校三重验证，不信任原结论） | externalDir（产物目录，只读）、topic | dataPath（提供则完整重算而非仅可推导性核验）、language | 
+| `audit-pack` | **只重建审计追踪包**（从已有产物目录） | topic | language |
+
+**外部产物的三层独立校验入口**：外部**初稿**→`citation-audit`/`review`；外部**分析产物**（脚本+输出）→`cross-validate`（复现+独立重算+审校）；外部**数据**→`pipeline` 全流程。
+
+**可选项原则**：数据（dataPath）、私有文献库（privateLibraryPath）、期刊偏好（targetJournals）、扩展检索源（extraSources）、验收命令（verifyCommand）、图表审计开关（figurePolish）、期刊指南（journalGuideUrl）——**全部可跳过**，访谈中每个可选项都带「跳过，用默认」；用户明确说"快点跑"时，压缩访谈为一次确认（topic + 模式 + 档位 + 模型搭配）即可启动。
+
+## 阶段一：grill 式研究访谈（启动前必须完成，借鉴 grill-me）
+
+不要一次抛一份问卷。**一次只问一个问题**（用 AskUserQuestion），每个问题附 2-4 个选项且**标出推荐答案**，用户选完立刻追问下一问，直到研究意图真正清晰。至少覆盖：
+
+1. 核心研究意图：想回答什么问题？想证明的还是想探索的？（推荐选项按 topic 语义给出）
+2. 因果还是描述：关心因果推断（暴露→结局）还是关联/现状描述？
+3. 人群与结局优先级：P 和 O 里哪个最不可妥协？
+4. 数据现实——**路径选择弹窗**（不要让用户手打路径）：
+   a. 先用 Bash 探测候选数据目录：`ls -d ~/research-data/*/ ~/data/*/ ~/datasets/*/ ~/Desktop/*/ ~/Downloads/*/ 2>/dev/null | head -12`（含工作区子目录）
+   b. AskUserQuestion 弹窗选择（header：`数据位置`）：选项 = 探测到的候选目录（各附一句内容摘要，如"5 个 csv，约 200MB"）；外加两个固定项：**「暂无数据，用模拟演示」**与**「手动指定路径」**（选后让用户输入，或直接用 Other 输入路径）
+   c. 选中后**当场验证并复述**：`ls -la` 列出文件（名称/大小/格式），识别 csv/xlsx/sav/dta 等格式，向用户确认"将对这个目录做只读分析（code-to-data）"后再定稿 dataPath
+   d. 路径不存在/为空时如实报告并重新选择，不要猜
+5. 私有文献库（可选）——**同样的弹窗选择**（header：`私有文献库`）：探测 `~/Documents`、`~/Zotero`、`~/Papers`、`~/Downloads` 等常见文献目录；选项 = 候选目录（附 PDF 数量摘要）/ 手动指定 / **「不关联」**。选中后清点 PDF 数量请用户确认，作为 `privateLibraryPath` 传入——用户合法持有的已购文献，仅本地只读解析（个人研究用途、不再分发），匹配研究问题的并入证据表（来源标"私有库"），引文深审对这些文献直接读本地全文
+6. 分析预期：有没有必须做的分析（亚组、敏感性的期待）？
+7. 目标期刊/报告规范偏好（targetJournals；不明确则由选题主席建议）
+8. 风险边界：结论会被用于什么场景（发表/学位/内部决策）？——决定评审严格度建议
+9. **交付语言**：按用户访谈所用语言确认（English / 中文 / Español / Français…），启动时作为 `language` 传入——所有交付文档用该语言撰写，引用条目与检索式保留原文语言
+10. **图表规范**（可选）：目标期刊风格（figureStyleJournal，如 Nature/Cell/NEJM）与投稿指南链接（journalGuideUrl）；不提供则默认 Nature 系通用规范；figurePolish=false 可整体关闭图表审计
+
+最后把凝练出的「研究任务说明」整体给用户确认一遍（含数据口径与风险边界），确认后才进入阶段二。
+
+**数据安全与隐私（访谈时必须交代）**：
+- **放置**：真实数据放在 ZCode 工作区**之外**的专用目录（推荐 `~/research-data/<项目名>/`），把该路径作为 `dataPath` 传入——工作区内文件任何子 agent 都能自由读取，且易混入产物与备份
+- **先去标识化**：删/脱敏直接标识（姓名、证件号、电话、详细地址、精确日期转区间等）后再交给流水线；须符合所在辖区法规（HIPAA Safe Harbor 18 项 / GDPR / 个保法）
+- **code-to-data 铁律**（已固化进工作流分析员角色）：agent 不读原始数据行，只让脚本打印 schema；一切处理写成代码执行，只有汇总统计回到对话；输出不含行级标识符；原始目录只读
+- 如提供 `verifyCommand` 可获得确定性复现关卡
+
+## 阶段二：启动交互协议（严格按此顺序）
+
+### 第 1 步：档位 + 评审严格度（一次 AskUserQuestion，两个问题）
+
+先调用 **ListModels** 记下当前可用模型（`[current]` 为会话模型），然后弹出：
+
+- **编队档位**（header：`编队档位`），选项描述完整带上：
+  1. **hybrid 混流（推荐）** — 三库文献检索与总结汇报用轻量模型；立题、统计、分析、审稿、写作用强模型
+  2. **quality 全强** — 所有角色都用强模型，最贵最稳
+  3. **economy 省钱** — 检索与证据综合也下沉轻量模型；**统计计划、分析、审稿、写作任何档位都不降级**（统计正确性是本流水线的生命线）
+- **评审严格度**（header：`评审严格度`）：
+  1. **development（推荐）** — 1 位方法学审稿人 + 统计审稿
+  2. **demo** — 另加对抗挑战员专攻致命缺陷与夸大陈述（对外展示成果前用）
+  3. **benchmark** — 三位审稿人并行（方法学/领域/统计）+ 总评审（期刊投稿前用）
+
+### 第 2 步：模型搭配（再一次 AskUserQuestion）
+
+- 选 quality：只问强模型；否则同一次问强模型 + 轻量模型（选项从 ListModels 挑选，会话模型推荐位；不在选项内的用 Other 输入完整 id）
+- Other 给出的 id 先对照 ListModels 确认；不在 `LIGHT_MODELS` 表中则在工作流脚本加一行 `"id": model("id")`
+
+### 第 3 步：按搭配组装启动
+
+```
+saved: { name: "provenance-lab", args: { topic, field, dataPath?, privateLibraryPath?, targetJournals?, integrityMode, teamProfile, lightModel, language, verifyCommand? } }
+subagent_model: <强模型 id>   // 选会话模型时可省略
+name: "科研：<主题短标签>"
+```
+
+等完成通知（不轮询），转述 conclusion/findings；交付卡片：论文初稿（主交付）、**审计追踪与人工校对包**、产出清单、证据表、SAP、分析输出、回应信。**产出位置**：有数据集时全部在 `<数据集文件夹>/provenance-lab-output/`（原始数据文件只读未动），无数据时在工作区同名目录。中途跑偏用 AmendWorkflow。
+
+## 内部机制（供了解）
+
+- **事实账本**：立题/证据/SAP/审稿每个关卡通过后记账，后续专家都能看到前情
+- **预注册式 SAP**：统计方法学家在看到任何结果之前定计划，从流程上杜绝 p-hacking
+- **引文白名单**：初稿只允许引用已核查证据表内的文献（PMID/DOI 逐条落地核查）或本研究自身结果，杜绝编造引文
+- **报告规范按名引用**：STROBE/CONSORT/PRISMA/NOS/RoB 等只在提示词中按名称调用，**不内嵌其版权清单文本**（开源合规考量）
+- **停滞诊断**：统计审稿与同行评审的修订循环中，连续两轮意见相同即引入根因诊断员换思路
+- **答辩拷问（grill）**：同行评审后，答辩拷问官提出 6/8/10 个"答不好就拒稿"级问题（按评审严格度），写作员逐条用已验证材料作答、修订初稿并产出预审回应信（07-rebuttal.md）；答不出的诚实列为待补——拷问的价值就在于暴露答不出的问题
+- **多库检索（按学科路由 + 合法性分层）**：基础三库 PubMed/EuropePMC/OpenAlex + 恒定补充 Semantic Scholar（官方免费 API）；按选题主席判定的领域加挂——clinical→ClinicalTrials.gov、epidemiology→bioRxiv、psychology→arXiv（定量方法）；用户可用 `extraSources` 参数指定更多源（仅限官方 API/合法途径）。**合法性铁律**：禁止爬取 Google Scholar（违反其 ToS）；订阅库（Scopus/WoS/Embase/PsycINFO）仅在用户已提供机构 API key 时启用，否则跳过并如实说明
+- **文献状态异常核查（硬关卡，任何情况下保留）**：证据综合阶段即排除已撤稿（retracted）与编辑关注（concern）状态的文献；S2 核查与 S7.5 深审均做撤稿状态三源审计（OpenAlex `is_retracted` / PubMed 出版类型 / Crossref Retraction Watch 开放库）；写作纪律：撤稿/关注文献绝不作为证据引用，确需提及时显式标注状态；更正版文献注明"引用更正后版本"。**引用纳入与排序只依据相关性、证据等级与方法学质量，不按期刊声望或被引数排序**（避免引用偏倚）
+- **引文深审（引用-原文深度比对关卡）**：初稿每条引用经四维校验——①**溯源**：是否最原始源文献（综述转引回溯到一手研究，替换后引用）；②**原文比对**：优先 EuropePMC 开放获取全文（取不到降级摘要并标注），定位到支撑陈述的具体段落/表/图，判定 supported/夸大/误导/不支持；③**必要性**：是否真支撑所在论点（必要/冗余/张冠李戴）；④问题引用退回写作员修订后复核。逐条明细（05a-citation-audit.md）照抄进审计包，供人工逐条核对
+- **文献归档**：开放可合法下载的文献落成 PDF 存 `papers/`，文件名规范 `标题_期刊_发表年份.pdf`；付费墙文献**绝不绕过**，出 Vancouver 格式待获取清单（08-papers-manifest.md，含 DOI 与建议获取途径）提醒用户自行下载补齐
+- **自然语态写作（natural-voice，全产物覆盖）**：成文类文档（初稿、预审回应信、流水线总结）执行伴生技能 `~/.zcode/skills/natural-voice/SKILL.md` 完整规范（动笔前先读，成稿前过自检清单）；结构化文档（立题书、证据表、SAP、审计包、文献清单）的角色人设内嵌其**学术子集**（直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责）。core 协议 §0 第 10 条内嵌语态摘要作自包含兑底——任何 harness 上伴生技能缺失时仍按摘要执行，无硬依赖
+- **审计追踪与人工校对包（防 AI 幻觉/学术不端的核心设计）**：① SAP 阶段即产出**变量字典**（每个变量的操作定义/来源列/变换规则/选取理由，含被排除候选）与**方法依据表**（每个分析方法为何选它）；② 收尾由审计整理员产出 `00-README.md`（目录树+动了啥/没动啥/去哪找）与 `05-audit-trail.md`（Mermaid 流程图（每节点做了什么+为何）、变量字典、方法决策表（计划依据↔执行情况对齐）、引文深审明细、各关卡结论、人工校对指引、免责声明）——研究者可按图逐节点、按表逐变量、按明细逐引文快速人工核对
+
+## 免责声明（必须向用户传达的边界）
+
+- **工具定位**：本 skill 是科研提效工具，与大多数工具一样**不保障产出百分百真实完美**；所有结论、数据、引文与文本必须经**用户人工审核**，并由具备专业能力的研究者**从专业层面对结果进行取舍**；AI 不能替代同行评审、伦理审查与作者的学术责任
+- 产出为**研究辅助**，不构成临床建议；投稿前所有引文与统计结果须经人工复核
+- 初稿若使用了 AI 辅助写作，按 ICMJE/目标期刊政策**如实披露**
+- 模拟数据口径的演示结果**不可**用于任何正式发表或决策
+
+## 开源说明
+
+本 skill 采用「**可移植 core + harness 适配层**」架构：`core/pipeline.md` 是与具体 agent 平台无关的流水线协议（阶段×角色×关卡×提示词），任何 agent（ZCode/Claude Code/Codex/DeepSeek harness/WorkBuddy…）都能照此执行；本 SKILL.md 与 `~/.zcode/workflows/provenance-lab.dwf.ts` 是 ZCode 适配层（动态工作流加速）。以 Apache-2.0 发布（LICENSE/NOTICE 见仓库）；机制借鉴的开源项目见文首链接与 NOTICE；运行时依赖本机已安装的 google-deepmind/science-skills（Apache-2.0，不在本包内再分发）。
