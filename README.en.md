@@ -93,6 +93,13 @@ Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pip
 - Reporting guidelines (CONSORT/STROBE/PRISMA…) are referenced by name only; their copyrighted checklists are never bundled (see NOTICE)
 - No scraping of Google Scholar; subscription databases only with your institutional credentials
 
+## Evaluation (how it is measured)
+
+The slogan demands every claim stands scrutiny — the evaluation system itself included:
+
+- **L0 telemetry**: every run writes `99-metrics.json` (gate pass rates, revision rounds, audit stats) for cross-run baselines; optimizations must not degrade the metrics
+- **L1 seeded-error suite**: `evaluation/` ships 11 known-bad citations (fabricated / retracted / overstated / misattributed / secondhand / wrong-context / corrected) plus a clean control and expected verdicts — measure the citation-audit gate's sensitivity/specificity with one run; protocol in [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+
 ## Roadmap
 
 - **v1.1 Neuroimaging (EEG / fNIRS)**: preprocessing + ERP/spectral + cluster-level correction (EEG); probe geometry / MBLL / GLM (fNIRS) — quality assured by domain gates: modality SAP templates freezing methodological decisions, domain-specific statistical reviewers, high-dimensional multiple comparisons in the pre-registration
