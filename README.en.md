@@ -93,6 +93,13 @@ Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pip
 - Reporting guidelines (CONSORT/STROBE/PRISMA…) are referenced by name only; their copyrighted checklists are never bundled (see NOTICE)
 - No scraping of Google Scholar; subscription databases only with your institutional credentials
 
+## Roadmap
+
+- **v1.1 Neuroimaging (EEG / fNIRS)**: preprocessing + ERP/spectral + cluster-level correction (EEG); probe geometry / MBLL / GLM (fNIRS) — quality assured by domain gates: modality SAP templates freezing methodological decisions, domain-specific statistical reviewers, high-dimensional multiple comparisons in the pre-registration
+- **v1.2 fMRI**: BIDS, pipeline parameters, FWE/FDR correction
+
+See [docs/development-log.md](docs/development-log.md) (decision D14). The current release supports structured tabular data; neurosignals enter via derived feature tables, with raw-signal support arriving with these modules.
+
 ## Attribution
 
 Mechanisms inspired by (no code copied): [AI-Scientist](https://github.com/SakanaAI/AI-Scientist) · [Agent Laboratory](https://github.com/SamuelSchmidgall/AgentLaboratory) · [PaperQA2](https://github.com/Future-House/paper-qa) · [STORM](https://github.com/stanford-oval/storm) · [AgentReview](https://github.com/ahren09/agentreview) · [Magentic-One](https://github.com/microsoft/autogen) · [claude-flow](https://github.com/ruvnet/ruflo) · [grill-me](https://github.com/mattpocock/skills). Full attribution and legal boundaries in [NOTICE.md](NOTICE.md).
