@@ -1,5 +1,7 @@
 # ProvenanceLab — 溯源科研流水线
 
+[**中文**](README.md) | [English](README.en.md)
+
 > **为真理，不为名利；把繁琐交给机器，让结论经得起推敲。**
 > *For truth, not glory. Machines take the toil — every claim stands scrutiny.*
 >
