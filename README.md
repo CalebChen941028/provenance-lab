@@ -104,6 +104,13 @@ bash install.sh     # 自动探测 ZCode / Claude Code / Codex 并安装对应�
 - AI 辅助写作按 ICMJE/目标期刊政策如实披露
 - 报告规范（CONSORT/STROBE/PRISMA 等）仅按名称引用，不内嵌版权文本（见 NOTICE）
 
+## 路线图
+
+- **v1.1 神经影像模块（EEG / fNIRS）**：预处理+ERP/频域+cluster 级校正（EEG）；探头几何/MBLL/GLM（fNIRS）。以领域关卡保证质量——领域 SAP 模板冻结方法学决策点、领域审稿人、高维多重比较进预注册
+- **v1.2 fMRI**：BIDS、流水线参数、FWE/FDR 校正
+
+详见 [docs/development-log.md](docs/development-log.md)（决策 D14）。当前版本支持结构化表格数据；神经信号以"派生特征表"方式接入全流程，原始信号级支持随上述模块交付。
+
 ## 致谢
 
 机制借鉴（未复制代码）：[AI-Scientist](https://github.com/SakanaAI/AI-Scientist)、[Agent Laboratory](https://github.com/SamuelSchmidgall/AgentLaboratory)、[PaperQA2](https://github.com/Future-House/paper-qa)、[STORM](https://github.com/stanford-oval/storm)、[AgentReview](https://github.com/ahren09/agentreview)、[Magentic-One](https://github.com/microsoft/autogen)、[claude-flow](https://github.com/ruvnet/ruflo)、[grill-me](https://github.com/mattpocock/skills)；运行时可选依赖 [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills)。完整归属见 [NOTICE.md](NOTICE.md)。
