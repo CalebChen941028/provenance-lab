@@ -1,0 +1,54 @@
+# ProvenanceLab 开发日志（Design & Decision Log）
+
+> 本文档记录项目从构想到 v1.0 发布的完整演进与关键决策及其理由。由主导开发会话整理。
+
+## 阶段 0：前传——通用多智能体工具（与本仓库的关系）
+
+在 ProvenanceLab 之前，同一环境中先构建了两个通用技能：`boost`（深度推理：规划→并行执行→验证关卡→停滞诊断→换人复核）与 `teamwork`（里程碑团队：事实账本、对抗验收、整体重规划、混合编队）。二者概念上受 Google Antigravity 公开文档化的 `/boost`、`/teamwork-preview` 启发，但实现完全独立，机制真正出处为开源项目 Magentic-One（MIT，双账本/停滞重规划）与 claude-flow（MIT，共享记忆）。
+
+**决策 D0（商标合规）**：措辞从"模拟 Google Antigravity"改为指名合理使用 + 非关联声明（"独立实现，与 Google 无关联、未获其背书"）。boost/teamwork 未纳入本仓库——ProvenanceLab 对其零依赖，且受众定位不同（科研 vs 通用工程）。
+
+## 阶段 1：立项与命名
+
+- 起点：在已安装 google-deepmind/science-skills（40 个检索技能）基础上，融合 boost/teamwork 机制与五个高星开源项目做法，构建临床医学/流行病学/心理学科研流水线
+- 借鉴对象：AI-Scientist（新颖性定位、自动审稿）、Agent Laboratory（分阶段专家+人工确认点）、PaperQA2（引文落地核查）、STORM（大纲驱动写作）、AgentReview（多评审人+总评审）
+- 曾用名 `research-team` → **决策 D1：更名 ProvenanceLab**（查重排除 ScholarProof/VeriTeam/Evidentia 后确认无同名项目；"Provenance/溯源"点中差异化灵魂）
+- 口号演进：产品副标语 "Every claim, traceable." → 使命口号 **"为真理，不为名利；把繁琐交给机器，让结论经得起推敲。"** + 三行信条
+
+## 阶段 2：核心流水线（13 阶段）
+
+选题（PICO/FINER+换人评审）→ 多库检索 → PRISMA 证据综合 → 引文核查 → 预注册 SAP → 分析与复现 → 统计审稿 → 图表审计 → IMRaD 初稿 → 同行评审模拟 → 答辩拷问 → 引文深审 → 文献归档 → 审计包。
+
+**关键决策**：
+- **D2 预注册式 SAP**：统计方法学家在看到任何结果前定计划（结构性反 p-hacking）；后补注"预注册式≠注册库预注册，正式预注册须提交 PROSPERO/OSF"
+- **D3 引文白名单**：初稿只准引用已核查证据表文献或本研究自身结果
+- **D4 code-to-data 铁律**：原始数据行不进入模型上下文，只传 schema 与汇总（数据集置于工作区外，产出回写到数据集文件夹旁）
+- **D5 检索合法性分层**：官方 API（含 Semantic Scholar）+ 按学科路由（clinical→ClinicalTrials.gov 等）；禁爬 Google Scholar；订阅库需用户机构凭据；JCR 影响因子为专有数据不非法获取
+- **D6（修订）删除"优先引用高声望/高被引"**：用户裁决消除引用偏倚——纳入与排序只看相关性、证据等级与方法学质量；文献撤稿状态审计（OpenAlex `is_retracted`/PubMed 出版类型/Crossref Retraction Watch 三源）保留为硬关卡
+
+## 阶段 3：信任与可用性增强
+
+- **D7 引文深审五维**：溯源（二手充一手回溯替换）/原文位置比对（OA 全文优先，摘要级如实标注并汇总披露）/必要性/撤稿状态/题录一致
+- **D8 多模式**：全流程之外六种独立服务——figure-polish（Nature/Cell 规范重绘，绝不改数值）/ citation-audit / review / **cross-validate**（第三方分析产物三重校验：原样复现+独立重算+统计审校）/ audit-pack
+- **D9 玻璃箱三件套**（针对"不懂统计代码者视 agent 为黑箱"的信任问题，分析框架为信任三要素+程序公正+控制感）：三行式通俗注释（做什么/为什么/怎么核对）、白话导读+亲手验证动作（防解释性过度信任）、**参与式检查点**（`checkpoints="sap"/"sap,draft"` 暂停人工放行，缓存零成本续跑）
+- **D10 受控白话层**：理念受 ASD-STE100 启发（该规范为 ASD 版权所有，未采用其文本，规则自写）：EN≤20 词/CN≤30 字、单句单概念、一词一义、祈使句核对动作
+- **D11 natural-voice 伴生技能**：中英去 AI 腔语态引擎，成文类执行完整清单、结构化文档执行学术子集；core 协议内嵌摘要保证跨 harness 自包含
+- **D12 学术规范内建**：初稿标题页自动生成 AI 使用声明（作者不得删除）、SAP 区分注册库预注册、摘要级比对汇总披露、工具定位声明贯穿全部交付物（"不保障百分百真实完美，须用户人工审核与专业取舍"）
+
+## 阶段 4：运维韧性（实战验证）
+
+benchmark 全流程演示中途两次遭遇订阅计划 5 小时配额中断：
+- 第一次：停止 → AmendWorkflow 切重档至备用厂商（opencode/claude-haiku，独立配额池）继续 → 配额恢复后切回
+- 第二次：运行时退避等待 → 配额恢复自动续跑（引擎层自愈）
+- 由此沉淀 **D13 配额 SOP**：确定性停止按重置时间建定时任务自动恢复；重度用户建议重档指向按量 provider；如实文档化"无提前预警"边界（1308 撞墙才返回、窗口账户级共享不可预估）
+
+## 阶段 5：开源发布
+
+- 架构：`core/pipeline.md`（平台无关协议 + 检索 API 速查附录）+ 适配层（ZCode skill+动态工作流 / Claude Code SKILL.md / Codex 提示）+ natural-voice 伴生技能
+- 合规：Apache-2.0、NOTICE 归属（9 个借鉴项目）、不内嵌 CONSORT/STROBE 等版权清单、三层免责
+- 发布：v1.0.0 tag + 中英双语 README + topics；example 目录待首次全流程演示产物整理后入库
+
+## 遗留与后续
+
+- 首跑实测画像与提速降 token 优化（检索单角色 200-500 万 tokens 为主要靶点：分批筛查、摘要预取交轻量档、立题勘察上限）
+- Mac mini 等多设备同步（install.sh 已支持）
