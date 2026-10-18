@@ -41,6 +41,15 @@ if [ -d "$HOME/.codex" ]; then
   installed=1
 fi
 
+# opencode (AGENTS.md convention)
+if [ -d "$HOME/.config/opencode" ]; then
+  mkdir -p ~/.config/opencode/provenance-lab
+  cp core/pipeline.md core/pipeline.en.md ~/.config/opencode/provenance-lab/ 2>/dev/null
+  cp adapters/universal/system-prompt.zh.md ~/.config/opencode/provenance-lab/
+  echo "[opencode] 协议已装到 ~/.config/opencode/provenance-lab/——把 adapters/universal/system-prompt.zh.md 内容追加进 AGENTS.md 即启用（英文用户：system-prompt.en.md + pipeline.en.md）"
+  installed=1
+fi
+
 if [ "$installed" -eq 0 ]; then
   echo "未检测到 ZCode / Claude Code / Codex。"
   echo "对其他 harness（DeepSeek harness、WorkBuddy 等）：把 core/pipeline.md 全文放进你的 agent 的系统提示/规则文件/自定义指令即可——协议本身与平台无关。"
