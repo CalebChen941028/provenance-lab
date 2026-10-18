@@ -10,7 +10,7 @@
 >
 > *(Product tagline: Every claim, traceable.)*
 
-**ProvenanceLab** is a multi-agent research pipeline for **clinical medicine, epidemiology, and psychology** — from question formulation to manuscript draft — built around one obsession: research you can actually verify. It runs across agent harnesses (ZCode / Claude Code / Codex / others), delivers documents in your language, and ships a human-audit package so every decision can be checked by hand.
+**ProvenanceLab** is a multi-agent research pipeline for **clinical medicine, epidemiology, psychology, and related health sciences (nursing, public health, pharmacy, rehabilitation, nutrition…)** — from question formulation to manuscript draft — built around one obsession: research you can actually verify. It runs across agent harnesses (ZCode / Claude Code / Codex / others), delivers documents in your language, and ships a human-audit package so every decision can be checked by hand.
 
 ```
 core/pipeline.md  (harness-agnostic protocol: stages × roles × gates × prompts)

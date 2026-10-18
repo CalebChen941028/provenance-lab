@@ -8,7 +8,7 @@
 
 ## English Quick Guide (for Claude Code / ZCode international users)
 
-**ProvenanceLab** — verifiable research pipeline (clinical medicine / epidemiology / psychology): question (PICO/FINER) → multi-database search → PRISMA synthesis with retraction audit → pre-registered SAP (variable dictionary + overfitting controls) → analysis (code-to-data, chunked compute) → statistical review → Nature/Cell-standard figures → IMRaD draft (citation whitelist, AI + ethics disclosures) → simulated peer review → defense grilling → five-dimension citation audit → OA archiving → human-audit package. Slogan: **For truth, not glory. Machines take the toil — every claim stands scrutiny.**
+**ProvenanceLab** — verifiable research pipeline (clinical medicine / epidemiology / psychology / related health sciences): question (PICO/FINER) → multi-database search → PRISMA synthesis with retraction audit → pre-registered SAP (variable dictionary + overfitting controls) → analysis (code-to-data, chunked compute) → statistical review → Nature/Cell-standard figures → IMRaD draft (citation whitelist, AI + ethics disclosures) → simulated peer review → defense grilling → five-dimension citation audit → OA archiving → human-audit package. Slogan: **For truth, not glory. Machines take the toil — every claim stands scrutiny.**
 
 **Full English protocol**: [`core/pipeline.en.md`](../../../core/pipeline.en.md) — harness-agnostic, authoritative for international use.
 

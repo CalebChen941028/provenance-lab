@@ -1,7 +1,7 @@
 ---
 name: provenance-lab
 description: >-
-  科研专家团队（面向临床医学、流行病学、心理学）：选题立题（PICO/FINER + 换人评审）→ 三库并行文献检索
+  科研专家团队（面向临床医学、流行病学、心理学及相关健康科学领域（护理、公共卫生、药学、康复、营养等））：选题立题（PICO/FINER + 换人评审）→ 三库并行文献检索
   （调用本机 google science skills：PubMed/EuropePMC/OpenAlex）→ PRISMA 筛选与证据综合 → 引文逐条核查 →
   预注册式统计分析计划 → 分析执行与复现关卡 → 统计审稿 → IMRaD 论文初稿 → 同行评审模拟与修订 → 交付。
   当用户输入 /provenance-lab，或要求"科研团队/研究流水线/选题到初稿"类任务时使用。启动前必须先完成研究访谈。
@@ -11,7 +11,7 @@ description: >-
 
 > **为真理，不为名利；把繁琐交给机器，让结论经得起推敲。**（Every claim, traceable.）
 
-融合三套本地能力与五个开源项目机制，编排临床医学/流行病学/心理学的完整科研流水线：
+融合三套本地能力与五个开源项目机制，编排临床医学/流行病学/心理学及相关健康科学（护理/公共卫生/药学/康复等）的完整科研流水线：
 [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills)（文献/数据库检索）、
 boost（换人评审/验证关卡/停滞诊断）、teamwork（事实账本/混合编队/对抗挑战），
 机制借鉴 [AI-Scientist](https://github.com/SakanaAI/AI-Scientist)（新颖性定位+自动审稿）、

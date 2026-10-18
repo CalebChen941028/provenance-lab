@@ -1,7 +1,7 @@
 ---
 name: provenance-lab
 description: >-
-  ProvenanceLab 溯源科研流水线（临床医学/流行病学/心理学）：选题（PICO/FINER）→ 多库文献检索
+  ProvenanceLab 溯源科研流水线（临床医学/流行病学/心理学及相关健康科学（护理/公共卫生/药学/康复等））：选题（PICO/FINER）→ 多库文献检索
   （PubMed/EuropePMC/OpenAlex/SemanticScholar+按领域路由）→ 引文逐条核查 → 预注册式统计计划 →
   分析与复现关卡 → 统计审稿 → IMRaD 初稿 → 同行评审模拟 → 答辩拷问 → 引文深审（溯源/原文比对/必要性）→
   文献 PDF 归档 → 审计包。当用户要求"科研团队/研究流水线/选题到初稿"时使用。启动前先完成 grill 式研究访谈。

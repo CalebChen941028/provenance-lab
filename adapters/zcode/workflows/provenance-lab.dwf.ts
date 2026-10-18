@@ -1,7 +1,8 @@
 /* zcode-workflow
 description: ProvenanceLab
-  溯源科研流水线（全流程缺口修补版）：纳入偏好参数（必纳未检出标红+补充检索式）、初稿伦理声明占位、draft
-  检查点五项核对清单、二次运行归档建议；含三层对齐 D20、优化 v1 D18、D16-D19、玻璃箱、L0/L1 评测、六独立服务、多语言。
+  溯源科研流水线：面向临床医学、流行病学、心理学及相关健康科学领域（护理/公共卫生/药学/康复/营养等，field 新增
+  other-health）。含三层对齐 D20、纳入偏好 D21、优化 v1 D18、全域适配双语 D22、九处同步 D23、轻量回归
+  D24、D16-D19、玻璃箱、L0/L1 评测、六独立服务、多语言。
 args:
   checkpoints:
     type: string
@@ -30,7 +31,8 @@ args:
     default: ""
   field:
     type: string
-    description: clinical / epidemiology / psychology / auto
+    description: clinical / epidemiology / psychology /
+      other-health（护理、公共卫生、药学、康复、营养等相邻健康科学，注明最近主域）/ auto
     required: false
     default: auto
   figurePolish:
@@ -50,7 +52,7 @@ args:
     default: ""
   inclusionPrefs:
     type: string
-    description: 【可选】纳入偏好：研究类型/年份/语言限定与必纳文献（PMID/DOI）——证据综合必须遵守；必纳未检出显式标红并给补充检索式，绝不静默丢失
+    description: 【可选】纳入偏好：类型/年份/语言限定与必纳文献；必纳未检出标红
     required: false
     default: ""
   integrityMode:
@@ -164,8 +166,8 @@ interface ResearchQuestion {
   journals: string[];
   /** FINER 评估与新颖性定位。 */
   novelty: string;
-  /** 学科领域判定：clinical / epidemiology / psychology（决定后续检索源路由）。 */
-  field: "clinical" | "epidemiology" | "psychology";
+  /** 学科领域判定：clinical / epidemiology / psychology / other-health（护理、公共卫生、药学、康复、营养等相邻健康科学，须注明最邻近主域；决定检索源路由）。 */
+  field: "clinical" | "epidemiology" | "psychology" | "other-health";
 }
 
 interface PlanCritique {
@@ -574,7 +576,7 @@ const pi = agent("选题主席", {
     "你是资深临床研究选题主席（临床医学/流行病学/心理学），站在 PI 视角把模糊想法凝练成可执行研究。勘察预算（token 纪律）：背景文献只读摘要级（≤8 篇），校准用效应量从检索摘要或用户证据取；立题阶段禁止全文深读（全文阅读是 S2/S7.5 专职角色的职责）。产出必须包含 PICO/PECO 结构、可检验假设、匹配的研究设计、对应报告规范（观察性=STROBE、RCT=CONSORT、系统综述=PRISMA、心理测量按 APA/心理领域惯例）、FINER 评估与新颖性定位、2-3 本目标期刊。设计要与可获得的数据条件匹配，不要承诺做不到的事。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。立题书按学术文档组织（研究背景与立题依据/研究问题与假设（PICO 表）/设计与报告规范/目标期刊/参考文献 五章编号）。把完整立题书写入工作区文件。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
 });
 const rq = await pi.ask<ResearchQuestion>(
-  `研究方向（用户原话）：${topic}\n领域设定：${field}${field === "auto" ? "（由你判定，必须填入返回结果的 field 字段：clinical/epidemiology/psychology）" : ""}\n数据条件：${dataPath ? `用户提供数据：${dataPath}` : "暂无真实数据，分析阶段将用固定种子模拟数据演示（立题时按此现实约束设计）"}\n${targetJournals ? `用户期刊偏好：${targetJournals}\n` : ""}必要时可读取 ${SKILLS} 下的相关技能文件辅助（如 pubmed_database、clinical_trials_database）获取背景。请产出立题书并写入 ${OUT}/01-research-question.md（自建目录），同时按接口返回结构化结果。${langNote}`,
+  `研究方向（用户原话）：${topic}\n领域设定：${field}${field === "auto" ? "（由你判定，必须填入返回结果的 field 字段：clinical/epidemiology/psychology/other-health——护理、公共卫生、药学、康复、营养等相邻健康科学选 other-health 并注明最邻近主域）" : ""}\n数据条件：${dataPath ? `用户提供数据：${dataPath}` : "暂无真实数据，分析阶段将用固定种子模拟数据演示（立题时按此现实约束设计）"}\n${targetJournals ? `用户期刊偏好：${targetJournals}\n` : ""}必要时可读取 ${SKILLS} 下的相关技能文件辅助（如 pubmed_database、clinical_trials_database）获取背景。请产出立题书并写入 ${OUT}/01-research-question.md（自建目录），同时按接口返回结构化结果。${langNote}`,
 );
 
 phase("换人评审立题方案");

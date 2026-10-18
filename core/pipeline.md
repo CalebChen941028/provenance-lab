@@ -1,7 +1,7 @@
 # ProvenanceLab Protocol（可移植科研流水线协议 · multilingual：交付语言随用户）
 
 > 本文件是 **agent 无关** 的协议核心：任何 LLM agent（ZCode / Claude Code / Codex / DeepSeek harness / WorkBuddy 等）都应能仅凭本文件执行完整流水线。各 harness 的适配层（SKILL.md、动态工作流等）只是本协议的加速器。
-> 面向领域：临床医学、流行病学、心理学。
+> 面向领域：临床医学、流行病学、心理学及相关健康科学领域（护理、公共卫生、药学、康复、营养等）。
 
 ## 0. 执行规则（任何 agent 通用）
 

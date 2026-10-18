@@ -9,7 +9,7 @@
 >
 > （产品副标语：Every claim, traceable. 每一个论断，都可溯源。）
 
-**ProvenanceLab**（provenance-lab）— 跨 harness 溯源科研流水线，面向临床医学、流行病学、心理学的"选题 → 文献证据 → 统计分析 → 交叉验证 → 论文初稿 → 答辩拷问"全流水线，一套协议适配多种 agent（ZCode / Claude Code / Codex / DeepSeek harness / WorkBuddy…）。多语言交付（English / 中文 / Español…），支持关联用户合法持有的私有文献库。
+**ProvenanceLab**（provenance-lab）— 跨 harness 溯源科研流水线，面向临床医学、流行病学、心理学及相关健康科学领域（护理、公共卫生、药学、康复、营养等）的"选题 → 文献证据 → 统计分析 → 交叉验证 → 论文初稿 → 答辩拷问"全流水线，一套协议适配多种 agent（ZCode / Claude Code / Codex / DeepSeek harness / WorkBuddy…）。多语言交付（English / 中文 / Español…），支持关联用户合法持有的私有文献库。
 
 ```
 core/pipeline.md（平台无关协议：阶段×角色×关卡×提示词）

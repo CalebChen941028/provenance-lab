@@ -1,6 +1,6 @@
 # ProvenanceLab Protocol (English Edition · harness-agnostic)
 
-> Companion to `pipeline.md` (Chinese, authoritative). This file is the full English version for international users. Any LLM agent (ZCode / Claude Code / Codex / opencode / DeepSeek harness / WorkBuddy / any) should be able to execute the complete pipeline from this file alone. Domain: clinical medicine, epidemiology, psychology.
+> Companion to `pipeline.md` (Chinese, authoritative). This file is the full English version for international users. Any LLM agent (ZCode / Claude Code / Codex / opencode / DeepSeek harness / WorkBuddy / any) should be able to execute the complete pipeline from this file alone. Domain: clinical medicine, epidemiology, psychology, and related health sciences (nursing, public health, pharmacy, rehabilitation, nutrition…).
 
 ## 0. Execution rules (universal)
 
