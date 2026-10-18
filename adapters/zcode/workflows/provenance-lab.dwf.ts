@@ -1,16 +1,16 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线：三层对齐（grill 访谈确认问题 → SAP
-  检查点逐列确认变量定义（真实数据默认开启）→ 审计包事后核验）；SAP 检查点返回带逐列核对指引（来源列名/编码方向/界值/变换）。含优化
-  v1、D16-D19、玻璃箱、L0/L1 评测、六独立服务、多语言。
+description: ProvenanceLab
+  溯源科研流水线（全流程缺口修补版）：纳入偏好参数（必纳未检出标红+补充检索式）、初稿伦理声明占位、draft
+  检查点五项核对清单、二次运行归档建议；含三层对齐 D20、优化 v1 D18、D16-D19、玻璃箱、L0/L1 评测、六独立服务、多语言。
 args:
   checkpoints:
     type: string
-    description: 【可选，玻璃箱】参与式检查点："sap" / "sap,draft"；真实数据时建议（默认）开启 sap——变量字典逐列确认后再分析
+    description: 【可选】参与式检查点："sap" / "sap,draft"；真实数据时默认 sap
     required: false
     default: ""
   dataPath:
     type: string
-    description: 【可选】数据集路径；提供时 SAP 检查点默认开启（变量字典逐列人工确认）
+    description: 【可选】数据集路径；提供时 SAP 检查点默认开启
     required: false
     default: ""
   draftPath:
@@ -46,6 +46,11 @@ args:
   figuresDir:
     type: string
     description: 【仅 figure-polish】图表目录
+    required: false
+    default: ""
+  inclusionPrefs:
+    type: string
+    description: 【可选】纳入偏好：研究类型/年份/语言限定与必纳文献（PMID/DOI）——证据综合必须遵守；必纳未检出显式标红并给补充检索式，绝不静默丢失
     required: false
     default: ""
   integrityMode:
@@ -359,6 +364,7 @@ if (!topic) throw new Error("缺少 topic 参数：研究方向或想法");
 const field = String(args.field ?? "auto");
 const dataPath = String(args.dataPath ?? "").trim();
 const targetJournals = String(args.targetJournals ?? "").trim();
+const inclusionPrefs = String(args.inclusionPrefs ?? "").trim();
 const integrityMode = String(args.integrityMode ?? "development");
 const adversarial = integrityMode === "demo" || integrityMode === "benchmark";
 const fullPanel = integrityMode === "benchmark";
@@ -658,11 +664,11 @@ phase("PRISMA 筛选与证据综合");
 stage("证据综合", "进行中");
 const synthesizer = agent("证据综合员", {
   system:
-    "你是系统综述方法学家。按 PRISMA 思路去重、按纳入/排除标准筛选，形成证据表；逐研究给出偏倚风险评估要点（队列/病例对照用 NOS，RCT 用 RoB 2，非随机干预用 ROBINS-I）；总结证据空白与本研究新颖性定位。文献状态与质量筛选：①排除已撤稿（retracted）与编辑关注声明（expression of concern）状态的文献作为证据（状态经 OpenAlex is_retracted、PubMed 出版类型、Crossref Retraction Watch 核查）；②纳入与排序只依据与研究问题的相关性、证据等级与方法学质量（偏倚风险评估），**不按期刊声望或被引数排序**（避免引用偏倚，保证新期刊与非英语区好研究的能见度）。所有保留的文献必须有真实可查的 PMID/DOI。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。证据表含 PRISMA 筛选说明与编号表格（Table N 规范表头+脚注）。把证据表写入文件后返回结构化结果。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
+    "你是系统综述方法学家。按 PRISMA 思路去重、按纳入/排除标准筛选，形成证据表；逐研究给出偏倚风险评估要点（队列/病例对照用 NOS，RCT 用 RoB 2，非随机干预用 ROBINS-I）；总结证据空白与本研究新颖性定位。**必纳核查**：用户纳入偏好中点名的文献若未出现在候选中，必须在 gaps 首条显式标红「用户必纳文献未检出：<条目>」并给出建议补充检索式——绝不静默丢失。文献状态与质量筛选：①排除已撤稿（retracted）与编辑关注声明（expression of concern）状态的文献作为证据（状态经 OpenAlex is_retracted、PubMed 出版类型、Crossref Retraction Watch 核查）；②纳入与排序只依据与研究问题的相关性、证据等级与方法学质量（偏倚风险评估），**不按期刊声望或被引数排序**（避免引用偏倚，保证新期刊与非英语区好研究的能见度）。所有保留的文献必须有真实可查的 PMID/DOI。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。证据表含 PRISMA 筛选说明与编号表格（Table N 规范表头+脚注）。把证据表写入文件后返回结构化结果。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
   ...(lightSynth ? lightTier : {}),
 });
 let evidence = await synthesizer.ask<EvidenceTable>(
-  `研究问题：${finalRq.question}\n候选文献（${sources.length} 个检索源合并，可能有重复）：${JSON.stringify(candidates)}\n${privatePapers.length > 0 ? `用户私有文献库（合法持有的已购文献，可并入证据表并逐条标 source="私有库"，id 填 DOI 或 "私有库:<文件名>"）：${JSON.stringify(privatePapers)}\n` : ""}检索式：${searchReports.map((r) => r.source + ": " + r.strategy).join("；")}\n请去重筛选（在线检索与私有库同文时保留一条并双标注来源），把证据表写入 ${OUT}/02-evidence-table.md 并返回。${langNote}`,
+  `研究问题：${finalRq.question}\n候选文献（${sources.length} 个检索源合并，可能有重复）：${JSON.stringify(candidates)}\n${privatePapers.length > 0 ? `用户私有文献库（合法持有的已购文献，可并入证据表并逐条标 source="私有库"，id 填 DOI 或 "私有库:<文件名>"）：${JSON.stringify(privatePapers)}\n` : ""}检索式：${searchReports.map((r) => r.source + ": " + r.strategy).join("；")}\n用户纳入偏好（若有，必须遵守）：${inclusionPrefs || "无"}\n请去重筛选（在线检索与私有库同文时保留一条并双标注来源），把证据表写入 ${OUT}/02-evidence-table.md 并返回。${langNote}`,
 );
 stage("证据综合", "通过");
 record(`证据综合：纳入 ${evidence.included.length} 篇（排除 ${evidence.excludedSummary}），新颖性：${evidence.noveltyStatement.split("。")[0]}`);
@@ -784,7 +790,7 @@ phase("撰写论文初稿");
 stage("论文撰写", "进行中");
 const writer = agent("医学写作者", {
   system:
-    `你是医学期刊写作者（STORM 式大纲驱动：先定大纲再成文）。**动笔前先读 ${SKILLS}/natural-voice/SKILL.md 并严格执行其语态规范**：去AI腔/去翻译腔/去伪学术黑话；直陈语气、术语全篇统一、数据句式紧贴解释；局限写成适用边界（scope conditions）而非防御性自贬（报告规范要求如实报告的局限仍报告，但用边界语态）；英文写作遵循 Part 2（封锁 AI 高频词、以证据强度选动词、一段一个动作、统计写法带效应量与 CI）；成稿前过其 Part 3 自检清单。按 ${finalRq.guideline} 规范与 IMRaD 结构撰写：引言（ funnel 逻辑，落点在研究空白）、方法（可复现细节，直接引用 SAP 与脚本）、结果（先总体后分层，每个结论带效应量与 95% CI，指向图表${figurePolish ? "，优先引用 figures-polished/ 规范化版本" : ""}）、讨论（结果解释、与证据表内文献逐条对照、局限、意义）。结构式摘要。引用规则：只允许两类引用——已核查证据表内的文献（带 PMID/DOI，或私有库条目的 "私有库:<文件名>" 标注）或本研究自身结果；绝不引入未核查的新文献，绝不编造引文。文献状态纪律：**绝不把撤稿（retracted）或编辑关注（concern）状态的文献作为证据引用**——如确需提及（如讨论该研究被撤稿的启示），必须显式标注其撤稿状态且不作为结论支撑；带更正/勘误（corrected）的文献可引用但注明"本文引用更正后版本"。${analysis.realData ? "" : "全文用模拟数据演示口径撰写，标题页显式标注。"}标题页必须附 AI 使用声明草稿：如实注明本稿件由 AI 辅助生成（文献检索、分析代码、初稿撰写），引用经逐条核查，全部结论需作者人工核验并承担学术责任；具体措辞按目标期刊的 AI 披露政策调整，作者不得删除该声明。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。全文 IMRaD 编号章节+结构式摘要+图表编号引用+回应信用 Reviewer N → Comment N.x → Response 逐条编号格式。把初稿写入文件后返回。`,
+    `你是医学期刊写作者（STORM 式大纲驱动：先定大纲再成文）。**动笔前先读 ${SKILLS}/natural-voice/SKILL.md 并严格执行其语态规范**：去AI腔/去翻译腔/去伪学术黑话；直陈语气、术语全篇统一、数据句式紧贴解释；局限写成适用边界（scope conditions）而非防御性自贬（报告规范要求如实报告的局限仍报告，但用边界语态）；英文写作遵循 Part 2（封锁 AI 高频词、以证据强度选动词、一段一个动作、统计写法带效应量与 CI）；成稿前过其 Part 3 自检清单。按 ${finalRq.guideline} 规范与 IMRaD 结构撰写：引言（ funnel 逻辑，落点在研究空白）、方法（可复现细节，直接引用 SAP 与脚本）、结果（先总体后分层，每个结论带效应量与 95% CI，指向图表${figurePolish ? "，优先引用 figures-polished/ 规范化版本" : ""}）、讨论（结果解释、与证据表内文献逐条对照、局限、意义）。结构式摘要。引用规则：只允许两类引用——已核查证据表内的文献（带 PMID/DOI，或私有库条目的 "私有库:<文件名>" 标注）或本研究自身结果；绝不引入未核查的新文献，绝不编造引文。文献状态纪律：**绝不把撤稿（retracted）或编辑关注（concern）状态的文献作为证据引用**——如确需提及（如讨论该研究被撤稿的启示），必须显式标注其撤稿状态且不作为结论支撑；带更正/勘误（corrected）的文献可引用但注明"本文引用更正后版本"。${analysis.realData ? "" : "全文用模拟数据演示口径撰写，标题页显式标注。"}标题页与文末还须含**伦理声明**占位：数据来源、是否经伦理委员会批准/豁免（批准号留空由作者填写）、知情同意状态——作者不得删除该节。标题页必须附 AI 使用声明草稿：如实注明本稿件由 AI 辅助生成（文献检索、分析代码、初稿撰写），引用经逐条核查，全部结论需作者人工核验并承担学术责任；具体措辞按目标期刊的 AI 披露政策调整，作者不得删除该声明。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。全文 IMRaD 编号章节+结构式摘要+图表编号引用+回应信用 Reviewer N → Comment N.x → Response 逐条编号格式。把初稿写入文件后返回。`,
 });
 let draft = await writer.ask<DraftResult>(
   `立题书：${JSON.stringify(finalRq)}\n证据表白名单：见 ${evidence.evidencePath}（纳入 ${evidence.included.length} 篇，逐条从文件读取，禁止引用白名单外文献）\nSAP：见 ${sap.sapPath}（从文件读取变量字典与方法依据）\n分析结果要点：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, scriptPath: analysis.scriptPath, outputsPath: analysis.outputsPath, reproducibility: analysis.reproducibility })}\n统计审稿遗留问题（写作时注意）：${JSON.stringify(statsReview)}\n目标期刊：${finalRq.journals.join("、")}\n把初稿写入 ${OUT}/06-draft.md 并返回。${langNote}`,
@@ -793,7 +799,7 @@ stage("论文撰写", "通过");
 if (checkpoints.includes("draft")) {
   log("检查点暂停：初稿完成，等待人工审阅后继续");
   return {
-    conclusion: `参与式检查点暂停：论文初稿已完成（${draft.draftPath}，含 AI 使用声明与白话注释的分析）。请审阅初稿与 ${OUT}/04-analysis/ 中带通俗注释的脚本。审阅后对助手说"继续"，助手将编辑运行脚本移除本检查点并续跑（从同行评审阶段继续，已完成步骤零成本导入）。`,
+    conclusion: `参与式检查点暂停：论文初稿已完成（${draft.draftPath}，含 AI 使用声明与白话注释的分析）。请核对五件事：①标题页 AI 使用声明与伦理声明占位是否在；②引用是否全部来自证据表白名单；③每个结果是否带效应量与 95%CI 并指向编号图表；④局限是否写成适用边界；⑤${OUT}/04-analysis/ 脚本的三行式通俗注释是否可读。任何一条不符直接给修改意见；确认后说"继续"。审阅后对助手说"继续"，助手将编辑运行脚本移除本检查点并续跑（从同行评审阶段继续，已完成步骤零成本导入）。`,
     findings: [],
     verified: ["全流程至初稿完成", `分析脚本含三行式通俗注释（做什么/为什么/怎么核对）`],
     notCovered: ["同行评审、答辩拷问、引文深审、文献归档、审计包待检查点放行后继续"],

@@ -67,7 +67,7 @@ boost（换人评审/验证关卡/停滞诊断）、teamwork（事实账本/混�
    c. 选中后**当场验证并复述**：`ls -la` 列出文件（名称/大小/格式），识别 csv/xlsx/sav/dta 等格式，向用户确认"将对这个目录做只读分析（code-to-data）"后再定稿 dataPath
    d. 路径不存在/为空时如实报告并重新选择，不要猜
 5. 私有文献库（可选）——**同样的弹窗选择**（header：`私有文献库`）：探测 `~/Documents`、`~/Zotero`、`~/Papers`、`~/Downloads` 等常见文献目录；选项 = 候选目录（附 PDF 数量摘要）/ 手动指定 / **「不关联」**。选中后清点 PDF 数量请用户确认，作为 `privateLibraryPath` 传入——用户合法持有的已购文献，仅本地只读解析（个人研究用途、不再分发），匹配研究问题的并入证据表（来源标"私有库"），引文深审对这些文献直接读本地全文
-6. 分析预期：有没有必须做的分析（亚组、敏感性的期待）？
+6. 分析预期与纳入偏好：有没有必须做的分析（亚组、敏感性）？**纳入/排除偏好**（研究类型限制、发表年份范围、语言限定）与**必纳文献**（如用户已知必须涵盖的研究，给 PMID/DOI）——收集后作为 `inclusionPrefs` 传入，证据综合必须遵守；必纳文献若未检出会被显式标红而非静默丢失
 7. 目标期刊/报告规范偏好（targetJournals；不明确则由选题主席建议）
 8. 风险边界：结论会被用于什么场景（发表/学位/内部决策）？——决定评审严格度建议
 9. **信任建立（首次使用建议）**：首次使用者建议开启 `checkpoints="sap"`（SAP 后暂停人工放行）或先用小任务试跑建立心理模型
@@ -105,7 +105,7 @@ boost（换人评审/验证关卡/停滞诊断）、teamwork（事实账本/混�
 ### 第 3 步：按搭配组装启动
 
 ```
-saved: { name: "provenance-lab", args: { topic, field, dataPath?, privateLibraryPath?, targetJournals?, integrityMode, teamProfile, lightModel, language, verifyCommand? } }
+saved: { name: "provenance-lab", args: { topic, field, dataPath?, privateLibraryPath?, targetJournals?, inclusionPrefs?, integrityMode, teamProfile, lightModel, language, verifyCommand? } }
 subagent_model: <强模型 id>   // 选会话模型时可省略
 name: "科研：<主题短标签>"
 ```
@@ -149,6 +149,10 @@ name: "科研：<主题短标签>"
 注：瞬时限流/过载由运行时自动退避重试，无需处理；只有确定性停止才走本 SOP。
 
 **预警边界（如实告知用户）**：配额无提前通知——1308 只在耗尽时返回，且窗口为账户级共享（其他会话/设备用量同池），agent 无法预估余量。事前手段只有用户自查用量面板或改用按量 provider；运行面板的 waiting 状态与 20 分钟停滞通知是撞墙后的事后可见信号，不是预警。
+
+## 二次运行产物保护
+
+对同一数据集/主题再次运行全流程会覆盖 `provenance-lab-output/` 旧产物。建议（由助手执行，不写入工作流以保护 amend 缓存重放）：重跑前将现有产物目录重命名归档（如 `provenance-lab-output-archive-1`）。
 
 ## 提示词编辑纪律（缓存保护，实战教训）
 
