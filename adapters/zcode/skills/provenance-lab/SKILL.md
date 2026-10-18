@@ -154,6 +154,22 @@ name: "科研：<主题短标签>"
 
 对同一数据集/主题再次运行全流程会覆盖 `provenance-lab-output/` 旧产物。建议（由助手执行，不写入工作流以保护 amend 缓存重放）：重跑前将现有产物目录重命名归档（如 `provenance-lab-output-archive-1`）。
 
+## 全域同步纪律（每次迭代的硬要求）
+
+对协议/工作流/skill 的任何实质变更，必须同步以下**全部九处**，缺一即迭代未完成：
+
+1. `~/.zcode/workflows/provenance-lab.dwf.ts`（ZCode 工作流本体，改后必须 SaveWorkflow 验证）
+2. `~/.zcode/skills/provenance-lab/SKILL.md`（本文件）
+3. 仓库 `core/pipeline.md`（中文权威协议）
+4. 仓库 `core/pipeline.en.md`（英文协议——**与中文版语义等价**）
+5. 仓库 `adapters/zcode/`（skill + workflow + pipeline 副本）
+6. 仓库 `adapters/claude-code/provenance-lab/`（SKILL.md + pipeline 副本；SKILL.en.md 若受影响一并更新）
+7. 仓库 `adapters/codex/provenance-lab.md` 与 `adapters/claude-code/provenance-lab/pipeline.md`
+8. 仓库 `adapters/universal/`（system-prompt 中英双版若受影响）
+9. 仓库 `README.md` + `README.en.md`（双语 README 的功能描述、表格、章节）
+
+完成同步后 git commit + push，并在 `docs/development-log.md` 记决策编号与理由。评测相关变更（引文深审/状态审计）另需按 L1 协议重跑植错测试。
+
 ## 提示词编辑纪律（缓存保护，实战教训）
 
 对**运行中**的工作流做脚本修订时，**绝不要改动已执行阶段的 ask 文本**——缓存按逐字节匹配，改一个字就会让该 agent 及其后所有步骤重跑（曾因注入格式规范导致 12 阶段全部重跑）。安全做法：只改尚未执行阶段的文本，或只做设置级 amend（模型/并发）；已完成阶段的增补用事后独立模式（audit-pack 等）补齐。

@@ -80,3 +80,5 @@ benchmark 全流程演示中途两次遭遇订阅计划 5 小时配额中断：
 **决策 D21（全流程缺口扫描）**：以 D20 视角（用户预期 vs 流程自主决策错配）遍历全部 21 阶段，修复四处：①纳入偏好参数（inclusionPrefs：研究类型/年份/语言限定+必纳文献；必纳未检出在 gaps 显式标红并给补充检索式，绝不静默丢失——对冲两段式检索的漏检风险）；②初稿伦理声明占位（数据来源/伦理批准或豁免状态，批准号留作者填写，不得删除——与 AI 声明同级）；③draft 检查点五项核对清单（AI/伦理声明在位、引用白名单、效应量+CI 指向编号图表、局限写成边界、通俗注释可读）；④二次运行产物归档建议（文档化，不写入工作流以保护 amend 缓存重放）。
 
 **决策 D22（全域适配与双语）**：适配层扩展至六类 harness——ZCode、Claude Code、Codex、opencode（原生 AGENTS.md 约定：协议+注入器装至 ~/.config/opencode/provenance-lab/）、以及 DeepSeek harness / WorkBuddy / 任意 agent 的通用注入层（adapters/universal/：system-prompt 中英双版 + 注入位置速查）。双语化：core 协议英文全版 pipeline.en.md（与中文权威版并行）、Claude Code 适配层英文速览 SKILL.en.md、通用注入器双语。国际用户从英文协议即可独立执行全流程。
+
+**决策 D23（全域同步纪律）**：自 D22 起的每次迭代，实质变更必须同步九处载体（ZCode 工作流+SKILL、core 中英双版协议、zcode/claude-code/codex/universal 四适配层、双语 README）并推送；评测相关变更须重跑 L1 植错测试。缺任何一处即迭代未完成——防止适配层与语言版本漂移。
