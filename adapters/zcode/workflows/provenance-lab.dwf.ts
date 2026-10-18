@@ -1,16 +1,16 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线（优化 v1）：检索两段式题录先行（禁全量摘要）、立题勘察预算（摘要级≤8
-  篇）、引文关卡题录+摘要级（全文留深审）、长计算分块+心跳日志、写作员改传文件路径不传全量 JSON。严谨度不变（全文深比对/全量记录 count
-  均保留），token 预期降 40-60%。含学术呈现 D17、过拟合防控 D16、L0 遥测、玻璃箱、六独立服务、多语言。
+description: ProvenanceLab 溯源科研流水线：三层对齐（grill 访谈确认问题 → SAP
+  检查点逐列确认变量定义（真实数据默认开启）→ 审计包事后核验）；SAP 检查点返回带逐列核对指引（来源列名/编码方向/界值/变换）。含优化
+  v1、D16-D19、玻璃箱、L0/L1 评测、六独立服务、多语言。
 args:
   checkpoints:
     type: string
-    description: 【可选，玻璃箱】参与式检查点："sap" / "sap,draft"
+    description: 【可选，玻璃箱】参与式检查点："sap" / "sap,draft"；真实数据时建议（默认）开启 sap——变量字典逐列确认后再分析
     required: false
     default: ""
   dataPath:
     type: string
-    description: 【可选】数据集路径
+    description: 【可选】数据集路径；提供时 SAP 检查点默认开启（变量字典逐列人工确认）
     required: false
     default: ""
   draftPath:
@@ -700,7 +700,7 @@ record(`SAP 定稿：主分析 ${sap.primaryAnalysis.split("。")[0]}；校正 $
 if (checkpoints.includes("sap")) {
   log("检查点暂停：SAP 已定稿，等待人工审阅后继续");
   return {
-    conclusion: `参与式检查点暂停：预注册式统计计划已定稿（${sap.sapPath}，含变量字典、方法依据与白话层）。请审阅——重点核对变量字典的选取理由与方法依据表。审阅后对助手说"继续"，助手将编辑运行脚本移除本检查点并续跑（已完成步骤零成本导入，从分析执行阶段继续）。`,
+    conclusion: `参与式检查点暂停：预注册式统计计划已定稿（${sap.sapPath}，含变量字典、方法依据与白话层）。请逐条核对三件事：①变量字典中每个变量的【来源列】是否与你数据集的真实列名一致；②变换规则（编码方向、反向计分、界值、标准化）是否符合你的操作意图；③方法依据表的主分析选择。任何一条不符，直接告知修改意见；确认无误后说"继续"。审阅后对助手说"继续"，助手将编辑运行脚本移除本检查点并续跑（已完成步骤零成本导入，从分析执行阶段继续）。`,
     findings: [],
     verified: ["立题经换人评审", `证据表 ${evidence.included.length} 篇经引文核查与状态审计", "SAP 已定稿（含白话层）`],
     notCovered: ["分析及之后所有阶段待检查点放行后继续"],
