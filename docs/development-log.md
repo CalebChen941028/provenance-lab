@@ -82,3 +82,5 @@ benchmark 全流程演示中途两次遭遇订阅计划 5 小时配额中断：
 **决策 D22（全域适配与双语）**：适配层扩展至六类 harness——ZCode、Claude Code、Codex、opencode（原生 AGENTS.md 约定：协议+注入器装至 ~/.config/opencode/provenance-lab/）、以及 DeepSeek harness / WorkBuddy / 任意 agent 的通用注入层（adapters/universal/：system-prompt 中英双版 + 注入位置速查）。双语化：core 协议英文全版 pipeline.en.md（与中文权威版并行）、Claude Code 适配层英文速览 SKILL.en.md、通用注入器双语。国际用户从英文协议即可独立执行全流程。
 
 **决策 D23（全域同步纪律）**：自 D22 起的每次迭代，实质变更必须同步九处载体（ZCode 工作流+SKILL、core 中英双版协议、zcode/claude-code/codex/universal 四适配层、双语 README）并推送；评测相关变更须重跑 L1 植错测试。缺任何一处即迭代未完成——防止适配层与语言版本漂移。
+
+**决策 D24（迭代回归提速）**：优化循环的重试验证改用轻量课题池（L-A 横断/L-B 两波纵向/L-C 即 L1 植错集，development 严格度，单次 30-60 分钟 <8M tokens），固定课题保证跨迭代可比；验收=L0 指标不劣化+逐阶段 token 对比+产物完整性；连续两轮无可优化即收敛，收敛后可选全尺度终验。与 D19 不冲突：轻量是开发者测试选题，产品内不设规模档。
