@@ -1,7 +1,6 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线（优化
-  v2）：分析员编排纪律（增量读写/摘要回读/重跑前置检查）、返回值路径校验、outputs 发布兑底。含 v1 全部优化、D16-D26、玻璃箱、L0/L1
-  评测、六独立服务、多语言。
+description: ProvenanceLab 溯源科研流水线（优化 v3）：文献管理员批下载纪律（PDF 不进上下文、元数据四项、API 字段查
+  OA）、证据综合员返回前逐条自检标识符（前置拦截关卡退回）。含 v1/v2 全部优化与 D16-D27。
 args:
   checkpoints:
     type: string
@@ -664,7 +663,7 @@ phase("PRISMA 筛选与证据综合");
 stage("证据综合", "进行中");
 const synthesizer = agent("证据综合员", {
   system:
-    "你是系统综述方法学家。按 PRISMA 思路去重、按纳入/排除标准筛选，形成证据表；逐研究给出偏倚风险评估要点（队列/病例对照用 NOS，RCT 用 RoB 2，非随机干预用 ROBINS-I）；总结证据空白与本研究新颖性定位。**必纳核查**：用户纳入偏好中点名的文献若未出现在候选中，必须在 gaps 首条显式标红「用户必纳文献未检出：<条目>」并给出建议补充检索式——绝不静默丢失。文献状态与质量筛选：①排除已撤稿（retracted）与编辑关注声明（expression of concern）状态的文献作为证据（状态经 OpenAlex is_retracted、PubMed 出版类型、Crossref Retraction Watch 核查）；②纳入与排序只依据与研究问题的相关性、证据等级与方法学质量（偏倚风险评估），**不按期刊声望或被引数排序**（避免引用偏倚，保证新期刊与非英语区好研究的能见度）。所有保留的文献必须有真实可查的 PMID/DOI。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。证据表含 PRISMA 筛选说明与编号表格（Table N 规范表头+脚注）。把证据表写入文件后返回结构化结果。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
+    "你是系统综述方法学家。按 PRISMA 思路去重、按纳入/排除标准筛选，形成证据表；逐研究给出偏倚风险评估要点（队列/病例对照用 NOS，RCT 用 RoB 2，非随机干预用 ROBINS-I）；总结证据空白与本研究新颖性定位。**必纳核查**：用户纳入偏好中点名的文献若未出现在候选中，必须在 gaps 首条显式标红「用户必纳文献未检出：<条目>」并给出建议补充检索式——绝不静默丢失。文献状态与质量筛选：①排除已撤稿（retracted）与编辑关注声明（expression of concern）状态的文献作为证据（状态经 OpenAlex is_retracted、PubMed 出版类型、Crossref Retraction Watch 核查）；②纳入与排序只依据与研究问题的相关性、证据等级与方法学质量（偏倚风险评估），**不按期刊声望或被引数排序**（避免引用偏倚，保证新期刊与非英语区好研究的能见度）。所有保留的文献必须有真实可查的 PMID/DOI——**返回前逐条自检**：对每个保留条目用你检索时已获得的 API 响应（esummary/Crossref/OpenAlex 记录）核对标识符可解析、题录一致，自检不通过的条目直接剔除并计入排除原因（关卡退回一轮的代价远高于前置自检）。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。证据表含 PRISMA 筛选说明与编号表格（Table N 规范表头+脚注）。把证据表写入文件后返回结构化结果。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
   ...(lightSynth ? lightTier : {}),
 });
 let evidence = await synthesizer.ask<EvidenceTable>(
@@ -901,7 +900,7 @@ phase("开放文献下载与获取清单");
 stage("文献归档", "进行中");
 const librarian = agent("文献管理员", {
   system:
-    `你负责把初稿引用的文献尽量落成本地 PDF 归档。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法查询每篇的开放获取状态（EuropePMC/PubMed Central OA 全文、出版社免费 PDF、预印本 arXiv/bioRxiv/medRxiv）。可合法免费获取的下载保存到 ${OUT}/papers/，文件名规范：标题_期刊_发表年份.pdf（去除文件名非法字符、总长控制在 120 字符内、同名冲突时末尾附 PMID）。付费墙后无合法免费版本的**绝不绕过付费墙**，列入未下载清单。把结果写入 ${OUT}/08-papers-manifest.md：①已下载清单（文件名 ↔ PMID/DOI 对照）；②未下载清单——标准参考文献格式（Vancouver：作者. 标题. 期刊. 年;卷(期):页. doi）逐条列出，每条注明建议获取途径（如"出版社页面订阅获取""机构图书馆/文献传递"），并在开头提醒用户自行下载补齐后放入 papers/ 目录。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。`,
+    `你负责把初稿引用的文献尽量落成本地 PDF 归档。token 纪律（编排优先）：①下载用批量脚本（curl/wget 列表式）执行，绝不把 PDF 内容读入上下文——你的工作是元数据与清单，不是读论文；②每篇只记录 文件名/PMID-DOI/来源/大小 四项；③查 OA 状态用 API 响应字段（EuropePMC isOpenAccess/PDF 链接、Unpaywall 思路），不逐篇浏览原文页；④清单文件一次写成，不反复重写。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法查询每篇的开放获取状态（EuropePMC/PubMed Central OA 全文、出版社免费 PDF、预印本 arXiv/bioRxiv/medRxiv）。可合法免费获取的下载保存到 ${OUT}/papers/，文件名规范：标题_期刊_发表年份.pdf（去除文件名非法字符、总长控制在 120 字符内、同名冲突时末尾附 PMID）。付费墙后无合法免费版本的**绝不绕过付费墙**，列入未下载清单。把结果写入 ${OUT}/08-papers-manifest.md：①已下载清单（文件名 ↔ PMID/DOI 对照）；②未下载清单——标准参考文献格式（Vancouver：作者. 标题. 期刊. 年;卷(期):页. doi）逐条列出，每条注明建议获取途径（如"出版社页面订阅获取""机构图书馆/文献传递"），并在开头提醒用户自行下载补齐后放入 papers/ 目录。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。`,
 });
 const library = await librarian.ask<PaperLibrary>(
   `初稿引用清单：${draft.draftPath} 的 References（逐条读取）\n引文深审明细（含每条 resolvedSource 与溯源替换后的原始文献）：${citationAudit.auditPath}\n${privatePapers.length > 0 ? `用户私有文献库已持有的文献（这些不需要下载，在 08 清单"已持有"区列出文件路径即可，且不复制进 papers/）：${JSON.stringify(privatePapers)}\n` : ""}下载目录：${OUT}/papers/（自建）\n完成后返回结构化结果。${langNote}`,
