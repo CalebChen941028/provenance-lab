@@ -473,7 +473,9 @@ if (mode !== "pipeline") {
       conclusion: `引文深审完成：${audit.entries.length} 条逐条比对，${audit.problems === 0 ? "全部通过" : `发现 ${audit.problems} 条问题（见明细）`}。明细：${audit.auditPath}`,
       findings: audit.entries.filter((e) => e.isPrimary !== "primary" || e.accuracy !== "supported" || e.necessity !== "necessary" || e.retractionStatus === "retracted" || e.retractionStatus === "concern").map((e) => ({ what: `引文问题：${e.citation.split("\n")[0]}`, evidence: `${e.note}（${e.isPrimary}/${e.accuracy}/${e.necessity}/${e.retractionStatus}）`, severity: "high", status: "verified" })),
       verified: [`${audit.entries.length} 条引用完成溯源/原文比对/必要性校验`],
-      notCovered: [],
+      notCovered: audit.entries.some((e) => e.textLevel === "none")
+        ? [`${audit.entries.filter((e) => e.textLevel === "none").length} 条引用未取到任何原文（摘要与全文均无），仅核对了题录身份，陈述与原文是否相符未经比对，须人工取原文复核`]
+        : [],
     };
   }
   if (mode === "review") {
@@ -1024,12 +1026,15 @@ if (reproFailed) notCovered.push(`复现关卡未通过（${verifyCommand} 修�
 if (citationAudit.problems > 0) notCovered.push(`引文深审遗留 ${citationAudit.problems} 条问题引用（详见 05a 明细），投稿前需人工复核`);
 const abstractOnlyCount = citationAudit.entries.filter((e) => e.textLevel === "abstract").length;
 if (abstractOnlyCount > 0) notCovered.push(`引文深审中 ${abstractOnlyCount} 条仅完成摘要级比对（无开放获取全文，正文级夸大无法排除），投稿前建议人工复核原文`);
+// 未取到任何原文的引用：判定只依据题录身份，陈述与原文是否相符未经比对，不能算作已核验
+const noTextCount = citationAudit.entries.filter((e) => e.textLevel === "none").length;
+if (noTextCount > 0) notCovered.push(`引文深审中 ${noTextCount} 条未取到任何原文（摘要与全文均无），仅核对了题录身份，陈述与原文是否相符未经比对，投稿前须人工取原文复核`);
 for (const u of rebuttal.unanswered) notCovered.push(`答辩拷问待补项：${u.split("\n")[0]}`);
 if (library.notDownloaded.length > 0) notCovered.push(`${library.notDownloaded.length} 篇引用无合法免费全文（付费墙），已列入 08 清单（Vancouver 格式+获取途径），请自行下载后放入 ${OUT}/papers/`);
 const shortTopic = [...finalRq.question].slice(0, 60).join("");
 const runMetrics = {
   ...metricsPartial,
-  citationAudit: { ...metricsPartial.citationAudit, abstractOnly: abstractOnlyCount },
+  citationAudit: { ...metricsPartial.citationAudit, abstractOnly: abstractOnlyCount, noText: noTextCount },
   reproducibility: analysis.reproducibility,
   reproFailed,
   realData: analysis.realData,
