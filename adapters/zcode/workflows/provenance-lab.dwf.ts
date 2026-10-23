@@ -1,10 +1,11 @@
 /* zcode-workflow
-description: ProvenanceLab 溯源科研流水线（优化 v4）：文献管理员硬预算（上下文读入<5KB、三步工作法、零 PDF 内容读取、OA
-  批量字段判定）。含 v1-v3 全部与 D16-D28。
+description: ProvenanceLab 溯源科研流水线（国际化
+  UI）：角色名双语英文优先（PI·选题主席等）、看板与阶段名英文（Question/Search/Evidence/SAP/Draft…）、语言自动建议期刊主语言优先。含
+  v1-v4 优化、D16-D30 全部。
 args:
   checkpoints:
     type: string
-    description: 【可选】参与式检查点："sap" / "sap,draft"；真实数据时默认 sap
+    description: 【可选】"sap" / "sap,draft"；真实数据时默认 sap
     required: false
     default: ""
   dataPath:
@@ -64,7 +65,7 @@ args:
     default: ""
   language:
     type: string
-    description: 【可选】交付语言
+    description: 【可选】交付语言（自动建议：期刊主语言优先）
     required: false
     default: ""
   lightModel:
@@ -414,10 +415,10 @@ const stage = (name: string, status: string): void => {
 };
 
 artifact.board("stages", {
-  title: "科研流水线进展",
+  title: "Pipeline Progress",
   key: "stage",
   status: "status",
-  columns: ["进行中", "通过", "有遗留"],
+  columns: ["in-progress", "passed", "issues"],
   cardTitle: "stage",
 });
 
@@ -441,12 +442,12 @@ const FIGURE_SYSTEM =
 if (mode !== "pipeline") {
   if (mode === "figure-polish") {
     const figDir = figuresDirArg || `${OUT}/04-analysis/figures`;
-    phase("独立服务：图表美观审计与规范化");
-    const artDirector = agent("独立-图表艺术总监", { system: FIGURE_SYSTEM });
+    phase("Solo:Figures");
+    const artDirector = agent("Solo·ArtDir", { system: FIGURE_SYSTEM });
     const polished = await artDirector.ask<{ polishedDir: string; auditPath: string; figures: { name: string; changes: string }[] }>(
       `图表目录：${figDir}（逐个查看 PNG，读绘图脚本若有）。规范化版本输出到 ${figDir}-polished/，逐图审计表写入 ${OUT}/09-figure-audit.md。${langNote}`,
     );
-    stage("图表规范化", "通过");
+    stage("图表规范化", "passed");
     return {
       conclusion: `图表规范化完成：${polished.figures.length} 张图按 ${styleTarget} 规范重绘，审计表见 ${OUT}/09-figure-audit.md。`,
       findings: polished.figures.map((f) => ({ what: `图 ${f.name}：${f.changes.split("\n")[0]}`, evidence: f.changes, severity: "low", status: "verified" })),
@@ -456,8 +457,8 @@ if (mode !== "pipeline") {
   }
   if (mode === "citation-audit") {
     if (!draftPathArg) throw new Error("citation-audit 模式需要 draftPath 参数（待审稿件路径）");
-    phase("独立服务：引文深度比对校验");
-    const citationAuditor = agent("独立-引文深审员", {
+    phase("Solo:CiteAudit");
+    const citationAuditor = agent("Solo·CiteAudit", {
       system:
         `你是引文深审员，对稿件做引用-原文的深度比对（溯源/原文位置/准确性/必要性/撤稿状态五维，含最原始源文献回溯）。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md 取原文：优先 EuropePMC 开放获取全文，取不到降级摘要并标注；用户私有库（若提供 privateLibraryPath）的条目最优先读本地 PDF。状态审计：OpenAlex is_retracted / PubMed 出版类型 / Crossref Retraction Watch 开放库核查撤稿与编辑关注。只依据亲眼读到的原文下结论，不改稿件。`,
     });
@@ -473,20 +474,20 @@ if (mode !== "pipeline") {
   }
   if (mode === "review") {
     if (!draftPathArg) throw new Error("review 模式需要 draftPath 参数（待审稿件路径）");
-    phase("独立服务：同行评审模拟");
+    phase("Solo:Review");
     const lenses = fullPanel
-      ? [{ tag: "方法学", focus: "设计、偏倚、规范符合度" }, { tag: "领域专家", focus: "新颖性与文献对照" }, { tag: "统计", focus: "报告完整性与推断边界" }]
-      : [{ tag: "方法学", focus: "设计、偏倚、规范符合度与论证链条" }];
+      ? [{ tag: "Methods", focus: "设计、偏倚、规范符合度" }, { tag: "Domain", focus: "新颖性与文献对照" }, { tag: "Stats", focus: "报告完整性与推断边界" }]
+      : [{ tag: "Methods", focus: "设计、偏倚、规范符合度与论证链条" }];
     const reviews = await Promise.all(
-      lenses.map((lens) => agent(`评审人-${lens.tag}`, { system: `你是期刊同行评审人（${lens.tag}视角：${lens.focus}）。苛刻但公正：major=不修不能发表，minor=建议项；读稿件与同目录支撑材料后给意见（不要改文件）。${langNote}` }).ask<Review>(`稿件：${draftPathArg}\n请给评审意见。`)),
+      lenses.map((lens) => agent(`Reviewer·${lens.tag}`, { system: `你是期刊同行评审人（${lens.tag}视角：${lens.focus}）。苛刻但公正：major=不修不能发表，minor=建议项；读稿件与同目录支撑材料后给意见（不要改文件）。${langNote}` }).ask<Review>(`稿件：${draftPathArg}\n请给评审意见。`)),
     );
     let majors = reviews.flatMap((r) => r.majorIssues);
     if (adversarial) {
-      const challenger = agent("独立-对抗挑战员", { system: "你的唯一任务是找出稿件的致命缺陷：夸大结论、数据与文字不符、引用与原文不符。亲自核对（不要改文件），找到实证才提出，找不到就明说。" });
+      const challenger = agent("Solo·Challenger", { system: "你的唯一任务是找出稿件的致命缺陷：夸大结论、数据与文字不符、引用与原文不符。亲自核对（不要改文件），找到实证才提出，找不到就明说。" });
       const attack = await challenger.ask<string>(`稿件：${draftPathArg}\n请攻击。没有则回答"未找到"。${langNote}`);
       if (attack.trim().length > 0 && attack.trim() !== "未找到") majors.push(`[对抗挑战] ${attack}`);
     }
-    const scribe2 = agent("评审汇总", { system: "你把多位评审人的意见汇总成一份给作者的评审报告（major/minor 分组、逐条可执行）。只写有依据的内容。", ...(teamProfile === "quality" ? {} : lightTier) });
+    const scribe2 = agent("Solo·ReviewSummary", { system: "你把多位评审人的意见汇总成一份给作者的评审报告（major/minor 分组、逐条可执行）。只写有依据的内容。", ...(teamProfile === "quality" ? {} : lightTier) });
     const reviewMd = await scribe2.ask<string>(`直接返回 Markdown 文本。评审意见：${JSON.stringify(reviews)}${majors.length > 0 ? `\n对抗挑战：${majors.join("；")}` : ""}${langNote}`);
     await artifact.markdown("review", reviewMd, { title: "同行评审模拟报告" });
     return {
@@ -498,8 +499,8 @@ if (mode !== "pipeline") {
   }
   if (mode === "cross-validate") {
     if (!externalDirArg) throw new Error("cross-validate 模式需要 externalDir 参数（第三方分析产物目录）");
-    phase("独立服务：第三方分析产物交叉校验");
-    stage("交叉校验", "进行中");
+    phase("Solo:CrossValidate");
+    stage("CrossValidate", "in-progress");
     const reproducer = agent("复现检验员", {
       system:
         `你负责独立复现第三方 agent 产出的分析。先勘察 ${externalDirArg}（目录结构、脚本、输出、README），登记产物清单；然后逐个原样重跑其分析脚本（不改逻辑；环境用 uv 按需装依赖，临时环境自行搭建），记录每个脚本的退出码、关键输出要点与是否可复现；脚本不可运行或缺依赖时如实记录原因。第三方目录全程只读，绝不修改其中任何文件。${langNote}`,
@@ -514,13 +515,13 @@ if (mode !== "pipeline") {
     const recompute = await recomputer.ask<{ recomputation: { metric: string; reported: string; recomputed: string; verdict: "match" | "mismatch" | "not-derivable" }[] }>(
       `第三方产物目录：${externalDirArg}${dataPath ? `\n原始数据：${dataPath}` : "（未提供原始数据：做可推导性核验）"}\n复现检验员结论：${JSON.stringify(repro.reproduction)}\n完成独立重算并返回对比表。`,
     );
-    const extStats = await agent("独立-统计审稿人", {
+    const extStats = await agent("Solo·StatRev", {
       system:
         `你是统计审稿人，对第三方分析做方法学审校（不信任其结论）：方法与数据匹配、假设检验是否执行、多重比较校正、效应量与 CI 报告完整性、缺失数据处理、p-hacking 迹象、结论是否超出数据支撑。读 ${externalDirArg} 的方法描述与输出核对。没有问题就明说没有。${langNote}`,
     }).ask<Review>(`第三方产物目录：${externalDirArg}\n请审校并返回意见。`);
     const mismatches = recompute.recomputation.filter((r) => r.verdict === "mismatch");
     const reproFailures = repro.reproduction.filter((r) => r.result.includes("失败") || r.result.includes("不可运行"));
-    stage("交叉校验", mismatches.length === 0 && reproFailures.length === 0 && extStats.verdict !== "reject" ? "通过" : "有遗留");
+    stage("CrossValidate", mismatches.length === 0 && reproFailures.length === 0 && extStats.verdict !== "reject" ? "passed" : "issues");
     const cvMd = [
       `# 第三方分析产物交叉校验报告`,
       ``,
@@ -549,8 +550,8 @@ if (mode !== "pipeline") {
     };
   }
   if (mode === "audit-pack") {
-    phase("独立服务：重建审计追踪包");
-    const archivist0 = agent("独立-审计整理员", {
+    phase("Solo:AuditPack");
+    const archivist0 = agent("Solo·Archivist", {
       system:
         `你把 ${OUT}/ 下已有的流水线产物整理重建『人工校对包』：00-README.md（目录树+动了啥/没动啥/去哪找+免责声明）与 05-audit-trail.md（Mermaid 流程图、变量字典与方法决策表（照抄 03-sap.md 与分析 decisions）、引文深审明细（照抄 05a）、关卡结论一览、人工校对指引、免责声明）。所有内容取自现有文件，禁止添加未发生的事项。${langNote}`,
     });
@@ -566,9 +567,9 @@ if (mode !== "pipeline") {
 }
 // ── 独立服务模式结束；以下为全流程 ──
 
-phase("立题：凝练研究问题与设计");
-stage("立题", "进行中");
-const pi = agent("选题主席", {
+phase("Question");
+stage("立题", "in-progress");
+const pi = agent("PI·选题主席", {
   system:
     "你是资深临床研究选题主席（临床医学/流行病学/心理学），站在 PI 视角把模糊想法凝练成可执行研究。勘察预算（token 纪律）：背景文献只读摘要级（≤8 篇），校准用效应量从检索摘要或用户证据取；立题阶段禁止全文深读（全文阅读是 S2/S7.5 专职角色的职责）。产出必须包含 PICO/PECO 结构、可检验假设、匹配的研究设计、对应报告规范（观察性=STROBE、RCT=CONSORT、系统综述=PRISMA、心理测量按 APA/心理领域惯例）、FINER 评估与新颖性定位、2-3 本目标期刊。设计要与可获得的数据条件匹配，不要承诺做不到的事。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。立题书按学术文档组织（研究背景与立题依据/研究问题与假设（PICO 表）/设计与报告规范/目标期刊/参考文献 五章编号）。把完整立题书写入工作区文件。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
 });
@@ -576,8 +577,8 @@ const rq = await pi.ask<ResearchQuestion>(
   `研究方向（用户原话）：${topic}\n领域设定：${field}${field === "auto" ? "（由你判定，必须填入返回结果的 field 字段：clinical/epidemiology/psychology/other-health——护理、公共卫生、药学、康复、营养等相邻健康科学选 other-health 并注明最邻近主域）" : ""}\n数据条件：${dataPath ? `用户提供数据：${dataPath}` : "暂无真实数据，分析阶段将用固定种子模拟数据演示（立题时按此现实约束设计）"}\n${targetJournals ? `用户期刊偏好：${targetJournals}\n` : ""}必要时可读取 ${SKILLS} 下的相关技能文件辅助（如 pubmed_database、clinical_trials_database）获取背景。请产出立题书并写入 ${OUT}/01-research-question.md（自建目录），同时按接口返回结构化结果。${langNote}`,
 );
 
-phase("换人评审立题方案");
-const rqCritic = agent("方法学评审", {
+phase("Critique");
+const rqCritic = agent("Critic·方法学评审", {
   system:
     "你是方法学评审专家。亲自复核立题书：设计能否回答该问题、假设是否可检验、规范选择是否正确、数据条件下是否可行（不要改文件）。只挑会导致方向性错误或返工的问题；没有就直说没有。",
 });
@@ -588,12 +589,12 @@ if (rqCritique.hasBlockingIssues && rqCritique.issues.length > 0) {
     `方法学评审提出以下问题，请逐条吸收并给出修订后的立题书（同步更新 ${OUT}/01-research-question.md）：\n${rqCritique.issues.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
   );
 }
-stage("立题", "通过");
+stage("立题", "passed");
 record(`立题通过：${finalRq.question}（设计 ${finalRq.design}，规范 ${finalRq.guideline}）`);
 const priorFacts = (): string => factsLedger.join("\n");
 
-phase("多库并行检索文献");
-stage("文献检索", "进行中");
+phase("Search");
+stage("文献检索", "in-progress");
 // 合法性分层：本机技能库（官方 API）+ 无技能源的官方免费 API + 用户指定源；禁止爬取 Google Scholar（违反其 ToS）；订阅库仅当用户另提供机构 API key 时使用（extraSources 注明）
 interface SearchSource {
   name: string;
@@ -629,7 +630,7 @@ const sources: SearchSource[] = [
 log(`检索源路由（领域 ${fieldKey}）：${sources.map((s) => s.name).join("、")}`);
 const searchReports = await Promise.all(
   sources.map((src) =>
-    agent(`检索-${src.name}`, {
+    agent(`Search·${src.name}`, {
       system:
         `你是文献检索员。${src.dir ? `先读 ${SKILLS}/${src.dir}/SKILL.md，严格按该技能的方法与脚本执行检索（本机已安装）。` : `本源没有本机技能：直接调用其官方 API（${src.hint}），遵守其条款与限流。`}构建规范检索式，两段式检索（token 纪律）：①先取按相关性排序的题录列表（sort=relevance），命中总数用数据库 count 字段记录，**禁止全量取回摘要**；②仅对前 40 条题录取摘要精选，返回至多 20 条最相关文献。合法性铁律：只用官方 API 或开放接口，禁止爬取 Google Scholar 或任何违反服务条款的站点；订阅库（Scopus/WoS/Embase/PsycINFO）无用户机构凭据时跳过并如实说明。逐条给出 PMID/DOI、标题、年份、设计、与问题相关的核心发现。检索失败时如实说明，不要编造文献。`,
       ...(lightSearch ? lightTier : {}),
@@ -645,9 +646,9 @@ log(`${sources.length} 个检索源合计检出 ${candidates.length} 条候选�
 const privateLibraryPath = String(args.privateLibraryPath ?? "").trim();
 let privatePapers: PrivatePaper[] = [];
 if (privateLibraryPath) {
-  phase("关联用户私有文献库");
-  stage("私有文献库", "进行中");
-  const curator = agent("私有文献库管理员", {
+  phase("PrivateLib");
+  stage("私有文献库", "in-progress");
+  const curator = agent("PrivLib·私有文献库管理员", {
     system:
       `你管理用户合法持有的已购文献库（${privateLibraryPath}）。合法性铁律：这些 PDF 仅本地读取用于用户本人的研究（个人使用授权），不外传、不再分发、不绕过任何 DRM。任务：①用 uv + pypdf/pdfminer.six 逐个解析 PDF 的元数据与首页文本，提取 标题/年份/DOI（提取不到就留空，不猜）；②对照研究问题的 PICO 判断每篇相关性，不相关的 relevance 留空；③绝不修改、移动或删除任何 PDF。返回结构化清单。`,
   });
@@ -655,13 +656,13 @@ if (privateLibraryPath) {
     `研究问题：${finalRq.question}\nPICO：P=${finalRq.population}；I/E=${finalRq.exposure}；C=${finalRq.comparator}；O=${finalRq.outcome}\n文献库目录：${privateLibraryPath}\n请扫描解析并返回相关论文清单（含提取方法说明）。`,
   );
   privatePapers = privateLib.papers.filter((p) => p.relevance.length > 0);
-  stage("私有文献库", "通过");
+  stage("私有文献库", "passed");
   record(`私有文献库：解析 ${privateLib.papers.length} 篇，与研究问题相关 ${privatePapers.length} 篇（并入证据链，来源标"私有库"）`);
 }
 
-phase("PRISMA 筛选与证据综合");
-stage("证据综合", "进行中");
-const synthesizer = agent("证据综合员", {
+phase("Evidence");
+stage("证据综合", "in-progress");
+const synthesizer = agent("Synth·证据综合员", {
   system:
     "你是系统综述方法学家。按 PRISMA 思路去重、按纳入/排除标准筛选，形成证据表；逐研究给出偏倚风险评估要点（队列/病例对照用 NOS，RCT 用 RoB 2，非随机干预用 ROBINS-I）；总结证据空白与本研究新颖性定位。**必纳核查**：用户纳入偏好中点名的文献若未出现在候选中，必须在 gaps 首条显式标红「用户必纳文献未检出：<条目>」并给出建议补充检索式——绝不静默丢失。文献状态与质量筛选：①排除已撤稿（retracted）与编辑关注声明（expression of concern）状态的文献作为证据（状态经 OpenAlex is_retracted、PubMed 出版类型、Crossref Retraction Watch 核查）；②纳入与排序只依据与研究问题的相关性、证据等级与方法学质量（偏倚风险评估），**不按期刊声望或被引数排序**（避免引用偏倚，保证新期刊与非英语区好研究的能见度）。所有保留的文献必须有真实可查的 PMID/DOI——**返回前逐条自检**：对每个保留条目用你检索时已获得的 API 响应（esummary/Crossref/OpenAlex 记录）核对标识符可解析、题录一致，自检不通过的条目直接剔除并计入排除原因（关卡退回一轮的代价远高于前置自检）。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。证据表含 PRISMA 筛选说明与编号表格（Table N 规范表头+脚注）。把证据表写入文件后返回结构化结果。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。",
   ...(lightSynth ? lightTier : {}),
@@ -669,12 +670,12 @@ const synthesizer = agent("证据综合员", {
 let evidence = await synthesizer.ask<EvidenceTable>(
   `研究问题：${finalRq.question}\n候选文献（${sources.length} 个检索源合并，可能有重复）：${JSON.stringify(candidates)}\n${privatePapers.length > 0 ? `用户私有文献库（合法持有的已购文献，可并入证据表并逐条标 source="私有库"，id 填 DOI 或 "私有库:<文件名>"）：${JSON.stringify(privatePapers)}\n` : ""}检索式：${searchReports.map((r) => r.source + ": " + r.strategy).join("；")}\n用户纳入偏好（若有，必须遵守）：${inclusionPrefs || "无"}\n请去重筛选（在线检索与私有库同文时保留一条并双标注来源），把证据表写入 ${OUT}/02-evidence-table.md 并返回。${langNote}`,
 );
-stage("证据综合", "通过");
+stage("证据综合", "passed");
 record(`证据综合：纳入 ${evidence.included.length} 篇（排除 ${evidence.excludedSummary}），新颖性：${evidence.noveltyStatement.split("。")[0]}`);
 
-phase("引文核查关卡");
-stage("引文核查", "进行中");
-const citationChecker = agent("引文核查员", {
+phase("CitationGate");
+stage("引文核查", "in-progress");
+const citationChecker = agent("CiteGate·引文核查员", {
   system:
     `你是引文核查员（PaperQA2 式落地核查 + 文献状态审计）。先读 ${SKILLS}/pubmed_database/SKILL.md 与 ${SKILLS}/literature_search_openalex/SKILL.md，用其方法逐条核验：①PMID/DOI 能否定位到真实论文；②题录信息（标题/年份/设计）是否相符；③我们写的核心发现是否与原文摘要一致；④状态审计：用 OpenAlex 的 is_retracted 字段、PubMed 出版类型标签（Retracted Publication / Expression of Concern / Correction）及 Crossref Retraction Watch 开放库（api.labs.crossref.org/retractions）核查撤稿/关注/更正状态，写入 status。核对层级=题录+摘要级（token 纪律：本关卡不取全文，全文级深比对是 S7.5 引文深审的职责；状态审计只用 API 字段与标签，不下载原文）。抽查至少 8 条或全部（不足 8 条时全查），状态审计覆盖全部纳入文献。发现失败项与异常状态文献（retracted/concern）如实列出，不要放水，也不要改任何文件。`,
 });
@@ -688,19 +689,19 @@ if (!citation.passed) {
   citation = await citationChecker.ask<CitationCheck>(`修正后的证据表：${JSON.stringify(evidence.included)}\n请复核失败项与抽查其余条目。`);
   citationFailures = citation.passed ? [] : citation.failures;
 }
-stage("引文核查", citation.passed ? "通过" : "有遗留");
+stage("引文核查", citation.passed ? "passed" : "issues");
 record(`引文核查：抽查 ${citation.checked} 条${citation.passed ? "全部通过" : `仍有 ${citation.failures.length} 条失败`}`);
 
-phase("预注册式统计分析计划");
-stage("统计计划", "进行中");
-const statistician = agent("统计方法学家", {
+phase("SAP");
+stage("统计计划", "in-progress");
+const statistician = agent("Stats·统计方法学家", {
   system:
     "你是生物统计方法学家。在看到任何结果之前预注册式地制定统计分析计划（SAP）：主要结局与主分析、次要与敏感性分析、效应量指标、α 水平与多重比较校正（Bonferroni/FDR）、缺失数据处理、样本量/效能、前提假设及检验方法、**模型复杂度与过拟合防控**（预注册时必须明确：①参数量与样本量关系——logistic 回归报告 EPV 并遵循 ≥10 惯例、每个调节项/随机效应的 df 支出说明；②随机效应结构的选择依据，禁止事后简化或复杂化搜索；③共线性诊断计划（VIF）；④若需模型比较，预注册 AIC/BIC 使用规则与备选模型集，禁止事后加模型；⑤适用时以交叉验证或训练/验证拆分作为预测性验证的敏感性分析；⑥模拟数据口径须含零假设蒙特卡洛检验 type-I 错误率校准）。心理领域遵循 APA 效应量报告惯例（Cohen's d、η² 等），流行病学报告 RR/OR/HR 及 95% CI。你此刻不知道任何结果——这是刻意设计，用于杜绝 p-hacking。另须产出两份供人工校对的内容：①变量字典——每个进入分析的变量给出 名称/操作定义/数据来源列/变换规则/选取理由（含考虑过但排除的候选变量及原因）；②方法依据表——每个分析方法一条选择依据（为何用它、不用什么替代）；③白话层——每个方法与每个变量附一句不使用术语的白话解释（初高中文化程度可懂，可用生活类比但不失真），让非统计背景研究者能读懂「我们在做什么、为什么」。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。SAP 文首注明：本文件为预注册式内控文档，不等同于注册库预注册；研究需正式预注册时应提交 PROSPERO（系统综述）/OSF（原始研究）等平台并在文中引用注册号。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。SAP 按正式预注册文档格式组织（编号章节：目的与设计/结局与变量/主分析/次要与敏感性/复杂度与过拟合防控/质量控制/版本）。把 SAP 写入文件后返回。",
 });
 const sap = await statistician.ask<StatPlan>(
   `研究问题：${finalRq.question}\n设计与假设：${finalRq.design}；${finalRq.hypotheses.join("；")}\n数据条件：${dataPath ? `真实数据 ${dataPath}` : "模拟数据演示"}\n证据表要点：${JSON.stringify(evidence.included.slice(0, 8))}\n把 SAP 写入 ${OUT}/03-sap.md 并返回。${langNote}`,
 );
-stage("统计计划", "通过");
+stage("统计计划", "passed");
 record(`SAP 定稿：主分析 ${sap.primaryAnalysis.split("。")[0]}；校正 ${sap.corrections}`);
 if (checkpoints.includes("sap")) {
   log("检查点暂停：SAP 已定稿，等待人工审阅后继续");
@@ -712,9 +713,9 @@ if (checkpoints.includes("sap")) {
   };
 }
 
-phase("执行分析与复现关卡");
-stage("分析执行", "进行中");
-const analyst = agent("数据分析员", {
+phase("Analysis");
+stage("分析执行", "in-progress");
+const analyst = agent("Analyst·数据分析员", {
   system:
     `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只写脚本打印 schema（列名/类型/行数/缺失概况），此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。编排纪律（token 预算）：读写自己的脚本与日志时只操作增量片段（tail/局部重写，不整文件重读重写）；每个计算单元的结果以摘要行回读（关键统计量+状态），不把大表贴回上下文；重跑决策先查缓存文件存在性与校验和，避免无谓全量重跑。长计算分块（每块目标 ≤10 分钟）：蒙特卡洛等重计算按块执行、每块落盘部分结果，并在 ${OUT}/04-analysis/run-heartbeat.log 追加心跳行（块名+时间+一行状态）供外部监测。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。通俗注释铁律（玻璃箱，白话遵循 natural-voice 的 Part 4 受控白话层：短句/单句单概念/一词一义/祈使句核对动作）：每个主要代码块（数据清洗、建模、每张图表）上方必须有三行注释——【做什么】一句白话（初高中可懂）；【为什么】方法学理由与对应的研究假设/变量；【怎么核对】指出本块输出对应哪个文件哪个数字，供非代码背景研究者逐块人工校对。返回结构化结果时，所有路径字段（scriptPath/outputsPath）必须是纯路径（无括号描述、无附加文字），目录字段以实际存在的入口文件代替。把脚本与输出写入目录后返回。`,
 });
@@ -730,16 +731,16 @@ if (verifyCommand) {
     analysis.reproducibility = `修复后重跑退出码 ${retry.exitCode}`;
   }
 }
-stage("分析执行", "通过");
+stage("分析执行", "passed");
 record(`分析完成（${analysis.realData ? "真实数据" : "模拟演示"}）：${analysis.keyFindings[0] ?? "无关键发现"}；复现：${analysis.reproducibility}`);
 
-phase("统计审稿与修订");
-stage("统计审稿", "进行中");
-const statsReviewer = agent("统计审稿人", {
+phase("StatReview");
+stage("统计审稿", "in-progress");
+const statsReviewer = agent("StatRev·统计审稿人", {
   system:
     "你是期刊统计审稿人。逐项核对：执行与 SAP 是否一致、假设检验是否做了、多重比较是否校正、效应量与 CI 是否完整、缺失数据是否按计划处理、有没有结果驱动的分析切换（p-hacking 迹象）、**过拟合防控核对**（参数量/样本比与 EPV 是否达标、随机效应结构是否与预注册一致、VIF/共线性是否报告、有无 SAP 之外的模型比较或变量增删、交叉验证结果若预定是否执行）、结论是否超出数据支撑。读工作区的脚本与输出核对（不要改文件）。没有问题就明说没有。",
 });
-const diagnoser = agent("根因诊断员", {
+const diagnoser = agent("Diag·根因诊断员", {
   system: "你负责诊断反复出现的统计问题根因（方法选择、数据问题或流程缺陷），不改文件，给出证据与最小修复路径。",
 });
 let statsReview = await statsReviewer.ask<Review>(
@@ -759,14 +760,14 @@ while (statsReview.verdict === "major-revision" && statsReview.majorIssues.lengt
   lastStatsSignature = signature;
   statsReview = await statsReviewer.ask<Review>(`修订后请复核（第 ${statsRound + 1} 轮）。前情账本：\n${priorFacts()}`);
 }
-stage("统计审稿", statsReview.verdict === "accept" || statsReview.verdict === "minor-revision" ? "通过" : "有遗留");
+stage("统计审稿", statsReview.verdict === "accept" || statsReview.verdict === "minor-revision" ? "passed" : "issues");
 record(`统计审稿：${statsReview.verdict}${statsReview.majorIssues.length > 0 ? `（遗留 ${statsReview.majorIssues.length} 项主要问题）` : ""}`);
 
 if (figurePolish) {
-  phase("图表美观审计与规范化（顶刊标准）");
-  stage("图表规范化", "进行中");
-  const artDirector = agent("图表艺术总监", { system: FIGURE_SYSTEM });
-  const figureGate = agent("视觉复核员", {
+  phase("Figures");
+  stage("图表规范化", "in-progress");
+  const artDirector = agent("ArtDir·图表艺术总监", { system: FIGURE_SYSTEM });
+  const figureGate = agent("VisualQA·视觉复核员", {
     system:
       `你是视觉复核员，验收图表规范化成果：逐张检查 ${styleTarget} 规范要点（色盲友好/字号/矢量与分辨率/分面字母/栏宽/无图表垃圾/风格统一/图例自足/坐标轴单位），核对未改动任何数值结果（对照原始输出）。发现问题如实列出；全部达标就明说。不要改文件。`,
   });
@@ -781,20 +782,20 @@ if (figurePolish) {
       `视觉复核未通过，请逐条整改后更新（不覆盖原图）：\n${visualCheck.issues.join("\n")}\n完成后更新 ${OUT}/09-figure-audit.md。`,
     );
   }
-  stage("图表规范化", visualCheck.passed ? "通过" : "有遗留");
+  stage("图表规范化", visualCheck.passed ? "passed" : "issues");
   record(`图表规范化：${figureAudit.figures.length} 张按 ${finalRq.journals[0] ?? styleTarget} 规范重绘${visualCheck.passed ? "并复核通过" : "（复核仍有遗留）"}`);
 }
 
-phase("撰写论文初稿");
-stage("论文撰写", "进行中");
-const writer = agent("医学写作者", {
+phase("Draft");
+stage("论文撰写", "in-progress");
+const writer = agent("Writer·医学写作者", {
   system:
     `你是医学期刊写作者（STORM 式大纲驱动：先定大纲再成文）。**动笔前先读 ${SKILLS}/natural-voice/SKILL.md 并严格执行其语态规范**：去AI腔/去翻译腔/去伪学术黑话；直陈语气、术语全篇统一、数据句式紧贴解释；局限写成适用边界（scope conditions）而非防御性自贬（报告规范要求如实报告的局限仍报告，但用边界语态）；英文写作遵循 Part 2（封锁 AI 高频词、以证据强度选动词、一段一个动作、统计写法带效应量与 CI）；成稿前过其 Part 3 自检清单。按 ${finalRq.guideline} 规范与 IMRaD 结构撰写：引言（ funnel 逻辑，落点在研究空白）、方法（可复现细节，直接引用 SAP 与脚本）、结果（先总体后分层，每个结论带效应量与 95% CI，指向图表${figurePolish ? "，优先引用 figures-polished/ 规范化版本" : ""}）、讨论（结果解释、与证据表内文献逐条对照、局限、意义）。结构式摘要。引用规则：只允许两类引用——已核查证据表内的文献（带 PMID/DOI，或私有库条目的 "私有库:<文件名>" 标注）或本研究自身结果；绝不引入未核查的新文献，绝不编造引文。文献状态纪律：**绝不把撤稿（retracted）或编辑关注（concern）状态的文献作为证据引用**——如确需提及（如讨论该研究被撤稿的启示），必须显式标注其撤稿状态且不作为结论支撑；带更正/勘误（corrected）的文献可引用但注明"本文引用更正后版本"。${analysis.realData ? "" : "全文用模拟数据演示口径撰写，标题页显式标注。"}标题页与文末还须含**伦理声明**占位：数据来源、是否经伦理委员会批准/豁免（批准号留空由作者填写）、知情同意状态——作者不得删除该节。标题页必须附 AI 使用声明草稿：如实注明本稿件由 AI 辅助生成（文献检索、分析代码、初稿撰写），引用经逐条核查，全部结论需作者人工核验并承担学术责任；具体措辞按目标期刊的 AI 披露政策调整，作者不得删除该声明。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。全文 IMRaD 编号章节+结构式摘要+图表编号引用+回应信用 Reviewer N → Comment N.x → Response 逐条编号格式。把初稿写入文件后返回。`,
 });
 let draft = await writer.ask<DraftResult>(
   `立题书：${JSON.stringify(finalRq)}\n证据表白名单：见 ${evidence.evidencePath}（纳入 ${evidence.included.length} 篇，逐条从文件读取，禁止引用白名单外文献）\nSAP：见 ${sap.sapPath}（从文件读取变量字典与方法依据）\n分析结果要点：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, scriptPath: analysis.scriptPath, outputsPath: analysis.outputsPath, reproducibility: analysis.reproducibility })}\n统计审稿遗留问题（写作时注意）：${JSON.stringify(statsReview)}\n目标期刊：${finalRq.journals.join("、")}\n把初稿写入 ${OUT}/06-draft.md 并返回。${langNote}`,
 );
-stage("论文撰写", "通过");
+stage("论文撰写", "passed");
 if (checkpoints.includes("draft")) {
   log("检查点暂停：初稿完成，等待人工审阅后继续");
   return {
@@ -805,22 +806,22 @@ if (checkpoints.includes("draft")) {
   };
 }
 
-phase("同行评审模拟与修订");
-stage("同行评审", "进行中");
+phase("PeerReview");
+stage("同行评审", "in-progress");
 const reviewerLenses = fullPanel
   ? [
-      { tag: "方法学", focus: "设计、偏倚、规范符合度（对照 " + finalRq.guideline + " 清单）" },
-      { tag: "领域专家", focus: "新颖性、与既往文献的对照是否到位、结论的领域意义" },
-      { tag: "统计", focus: "报告完整性、效应量与 CI、推断边界" },
+      { tag: "Methods", focus: "设计、偏倚、规范符合度（对照 " + finalRq.guideline + " 清单）" },
+      { tag: "Domain", focus: "新颖性、与既往文献的对照是否到位、结论的领域意义" },
+      { tag: "Stats", focus: "报告完整性、效应量与 CI、推断边界" },
     ]
-  : [{ tag: "方法学", focus: "设计、偏倚、规范符合度与论证链条" }];
+  : [{ tag: "Methods", focus: "设计、偏倚、规范符合度与论证链条" }];
 const reviewers = reviewerLenses.map((lens) => ({
   lens,
-  agent: agent(`评审人-${lens.tag}`, {
+  agent: agent(`Reviewer·${lens.tag}`, {
     system: `你是期刊同行评审人（${lens.tag}视角：${lens.focus}）。像顶级期刊审稿人一样苛刻但公正：major = 不修不能发表的问题，minor = 建议项。读工作区的初稿与证据表/分析输出后给意见（不要改文件）。没有 major 就明说。`,
   }),
 }));
-const challenger = agent("对抗挑战员", {
+const challenger = agent("Challenger·对抗挑战员", {
   system:
     "你的唯一任务是找出初稿的致命缺陷：夸大结论、数据与文字不符、引用与原文不符、规范硬伤。亲自核对（不要改文件），找到实证才提出，找不到就明说。",
 });
@@ -850,20 +851,20 @@ while (round < 2) {
 }
 let metaSummary = "";
 if (fullPanel) {
-  const metaReviewer = agent("总评审", {
+  const metaReviewer = agent("MetaRev·总评审", {
     system: "你是领域主编/资深编委。综合三位评审人与修订历史，给出最终意见：达到投稿水准与否，以及投稿前必须完成的条目。",
   });
   const meta = await metaReviewer.ask<MetaReview>(`三轮评审意见：${JSON.stringify(allReviews)}\n修订轮数：${round}\n最终初稿：${draft.draftPath}\n请给总评审意见。`);
   metaSummary = meta.summary;
   openMajors = meta.decision === "revise" ? [...openMajors, ...meta.required] : openMajors;
 }
-stage("同行评审", openMajors.length === 0 ? "通过" : "有遗留");
+stage("同行评审", openMajors.length === 0 ? "passed" : "issues");
 record(`同行评审（${integrityMode}，${round} 轮）：${openMajors.length === 0 ? "无遗留主要问题" : `遗留 ${openMajors.length} 项`}${metaSummary ? `；总评审：${metaSummary.split("。")[0]}` : ""}`);
 
-phase("答辩拷问与预审回应");
-stage("答辩拷问", "进行中");
+phase("Grilling");
+stage("Grilling", "in-progress");
 const grillCount = fullPanel ? 10 : adversarial ? 8 : 6;
-const examiner = agent("答辩拷问官", {
+const examiner = agent("Examiner·答辩拷问官", {
   system:
     `你是最苛刻的答辩委员兼审稿人（grill-me 式拷问：不问客套问题，只问"答不好就拒稿"的问题）。针对这项研究提出 ${grillCount} 个最刁钻但公正的问题，直击：因果推断的致命混淆、样本量与效能、**模型复杂度与过拟合**（参数是否相对样本过多、随机效应结构论证、共线性）、测量效度、结果的替代解释、与既有更强证据的冲突、结论外推边界、模拟/演示数据的可迁移性。每个问题标注考点。读初稿与分析输出后再出题。`,
 });
@@ -873,12 +874,12 @@ const grill = await examiner.ask<GrillQuestion[]>(
 const rebuttal = await writer.ask<Rebuttal>(
   `答辩拷问问题清单：${JSON.stringify(grill)}\n请逐条作答：能答的用证据表/SAP/分析输出中的真实材料作答（材料必须存在于工作区文件，不得新编）；暴露出稿件真实缺口的，同步修订初稿相应部分；确实答不出的诚实列入 unanswered 并说明缺什么（缺数据/缺实验/缺文献）。回应信语态遵循 ${SKILLS}/natural-voice/SKILL.md：笃定专业、直陈理据、无防御性辩解铺垫。完整问答按预审回应信格式写入 ${OUT}/07-rebuttal.md，返回结构化结果。${langNote}`,
 );
-stage("答辩拷问", rebuttal.unanswered.length === 0 ? "通过" : "有遗留");
+stage("Grilling", rebuttal.unanswered.length === 0 ? "passed" : "issues");
 record(`答辩拷问：${grill.length} 问，答出 ${rebuttal.answers.length} 问${rebuttal.unanswered.length > 0 ? `，${rebuttal.unanswered.length} 问诚实列为待补` : ""}`);
 
-phase("引文深度比对与校验");
-stage("引文深审", "进行中");
-const citationAuditor = agent("引文深审员", {
+phase("CiteAudit");
+stage("引文深审", "in-progress");
+const citationAuditor = agent("CiteAudit·引文深审员", {
   system:
     `你是引文深审员，对初稿做引用-原文的深度比对（防引文幻觉与学术不端的最后防线）。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法取原文：优先 EuropePMC 开放获取全文（PMC OA 全文接口），取不到全文时用摘要并在 resolvedSource 注明"仅摘要级"；标注"私有库:<文件名>"的引用直接读用户私有库中的本地 PDF 全文核对（最优先、最完整）。对初稿每一条引用做五件事：①定位：PMID/DOI 落地到真实文献（私有库条目定位到本地文件）；②溯源：判断它是否最原始源文献——若我们的陈述实际源自某原始研究而被综述转引，标 secondary-needs-tracing 并在 note 给出应引的原始文献（PMID/DOI）；③比对：找到原文中支撑我们陈述的具体位置（段落/表/图），逐点判定 supported（原文支持）/overstated（夸大）/misleading（误导性引用）/unsupported（原文不支持）；④必要性：这条引用是否支撑它所在句子的论点——necessary（必要）/redundant（冗余堆砌）/wrong-context（张冠李戴）；⑤状态审计：用 OpenAlex is_retracted 字段、PubMed 出版类型（Retracted Publication/Expression of Concern/Correction）与 Crossref Retraction Watch 开放库（api.labs.crossref.org/retractions）核查撤稿状态，填 retractionStatus——retracted/concern 视为问题引用（除非初稿已显式标注撤稿且不作为证据）。只依据亲眼读到的原文与接口返回下结论；读不到全文就如实降级到摘要级并标注，状态查不到标 unknown。不改初稿，把逐条明细写入文件后返回。`,
 });
@@ -893,24 +894,24 @@ if (citationAudit.problems > 0) {
   );
   citationAudit = await citationAuditor.ask<CitationAuditReport>(`修订后请复核此前的问题引用并更新明细文件（${OUT}/05a-citation-audit.md）。当前初稿：${draft.draftPath}`);
 }
-stage("引文深审", citationAudit.problems === 0 ? "通过" : "有遗留");
+stage("引文深审", citationAudit.problems === 0 ? "passed" : "issues");
 record(`引文深审：${citationAudit.entries.length} 条逐条比对（溯源/准确性/必要性），${citationAudit.problems === 0 ? "全部通过" : `遗留 ${citationAudit.problems} 条问题`}`);
 
-phase("开放文献下载与获取清单");
-stage("文献归档", "进行中");
-const librarian = agent("文献管理员", {
+phase("Archiving");
+stage("文献归档", "in-progress");
+const librarian = agent("Librarian·文献管理员", {
   system:
     `你负责把初稿引用的文献尽量落成本地 PDF 归档。token 纪律（编排优先）：①下载用批量脚本（curl/wget 列表式）执行，绝不把 PDF 内容读入上下文——你的工作是元数据与清单，不是读论文；②每篇只记录 文件名/PMID-DOI/来源/大小 四项；③查 OA 状态用 API 响应字段（EuropePMC isOpenAccess/PDF 链接、Unpaywall 思路），不逐篇浏览原文页；④清单文件一次写成，不反复重写；⑤硬预算：本环节你自己读入上下文的总内容 <5KB——你的全部工作是【写一个批量下载脚本→跑一次→读它的汇总输出表】三步；下载验证只用文件大小（>50KB）与 file 命令的 PDF 类型判定，禁止打开或读取任何 PDF 内容；OA 判定用 EuropePMC 批量查询（单请求多 id）的 isOpenAccess/fullTextUrlList 字段。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法查询每篇的开放获取状态（EuropePMC/PubMed Central OA 全文、出版社免费 PDF、预印本 arXiv/bioRxiv/medRxiv）。可合法免费获取的下载保存到 ${OUT}/papers/，文件名规范：标题_期刊_发表年份.pdf（去除文件名非法字符、总长控制在 120 字符内、同名冲突时末尾附 PMID）。付费墙后无合法免费版本的**绝不绕过付费墙**，列入未下载清单。把结果写入 ${OUT}/08-papers-manifest.md：①已下载清单（文件名 ↔ PMID/DOI 对照）；②未下载清单——标准参考文献格式（Vancouver：作者. 标题. 期刊. 年;卷(期):页. doi）逐条列出，每条注明建议获取途径（如"出版社页面订阅获取""机构图书馆/文献传递"），并在开头提醒用户自行下载补齐后放入 papers/ 目录。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。`,
 });
 const library = await librarian.ask<PaperLibrary>(
   `初稿引用清单：${draft.draftPath} 的 References（逐条读取）\n引文深审明细（含每条 resolvedSource 与溯源替换后的原始文献）：${citationAudit.auditPath}\n${privatePapers.length > 0 ? `用户私有文献库已持有的文献（这些不需要下载，在 08 清单"已持有"区列出文件路径即可，且不复制进 papers/）：${JSON.stringify(privatePapers)}\n` : ""}下载目录：${OUT}/papers/（自建）\n完成后返回结构化结果。${langNote}`,
 );
-stage("文献归档", "通过");
+stage("文献归档", "passed");
 record(`文献归档：下载 ${library.downloaded.length} 篇开放获取 PDF，${library.notDownloaded.length} 篇列入待获取清单（08）`);
 
-phase("审计追踪与人工校对包");
-stage("审计包", "进行中");
-const archivist = agent("审计整理员", {
+phase("AuditPack");
+stage("审计包", "in-progress");
+const archivist = agent("Archivist·审计整理员", {
   system:
     "你把整个流水线整理成『人工校对包』，目的是让研究者能逐一快速核对、防 AI 幻觉导致学术不端。产出两个文件：\n" +
     `① ${OUT}/00-README.md——目录树 + 每个文件一句话说明 + 三份清单：动了什么（仅 ${OUT}/ 产物）、没动什么（原始数据与数据集文件夹其余内容只读）、去哪找什么；末尾放免责声明（含工具定位声明：工具定位声明：本流水线是科研提效工具，与任何工具一样不保证产出百分之百真实、正确或完整；所有结论、数据、引文与文本必须经用户人工审核，并由具备专业能力的研究者从专业层面取舍与负责；AI 不能替代同行评审、伦理审查与作者的学术责任。）。\n` +
@@ -933,12 +934,12 @@ const metricsPartial = {
 const auditPack = await archivist.ask<AuditPack>(
   `立题：${JSON.stringify({ question: finalRq.question, design: finalRq.design, guideline: finalRq.guideline })}\nSAP（含变量字典与方法依据）：${JSON.stringify(sap)}\n分析（含执行决定）：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, reproducibility: analysis.reproducibility })}\n关卡结论：引文核查 ${citation.passed ? "通过" : citation.failures.join("；")}；统计审稿 ${statsReview.verdict}；同行评审 ${round} 轮遗留 ${openMajors.length} 项；答辩拷问 ${rebuttal.unanswered.length} 问待补；引文深审 ${citationAudit.entries.length} 条遗留 ${citationAudit.problems} 条（明细文件 ${citationAudit.auditPath}，逐条照抄进 (d)）\n产物路径：立题书/证据表/SAP/分析输出/初稿/回应信/引文深审明细/文献 PDF（papers/）/文献归档清单（08）均在 ${OUT}/ 下（逐个 ls 核实后写进 README 目录树）；另把以下运行指标原样写入 ${OUT}/99-metrics.json（JSON，不得增删改字段值）：${JSON.stringify(metricsPartial)}\n产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。00/05 按编号章节与表格化清单组织。请写出两个文件并返回。${langNote}`,
 );
-stage("审计包", "通过");
+stage("审计包", "passed");
 record(`审计包就绪：${auditPack.manifestPath} 与 ${auditPack.auditPath}`);
 
-phase("终检与交付");
-stage("终检交付", citationAudit.problems === 0 ? "通过" : "有遗留");
-const scribe = agent("报告撰写", {
+phase("Delivery");
+stage("终检交付", citationAudit.problems === 0 ? "passed" : "issues");
+const scribe = agent("Scribe·报告撰写", {
   system: `你把整个科研流水线的过程与产物汇总成给研究者看的 Markdown 总结：立题、证据、SAP、分析发现、评审轮次与遗留、投稿前建议。只写有依据的内容，明确区分已验证与未验证。总结开头固定附工具定位声明：工具定位声明：本流水线是科研提效工具，与任何工具一样不保证产出百分之百真实、正确或完整；所有结论、数据、引文与文本必须经用户人工审核，并由具备专业能力的研究者从专业层面取舍与负责；AI 不能替代同行评审、伦理审查与作者的学术责任。语态遵循 ${SKILLS}/natural-voice/SKILL.md：直陈、具体、无AI腔与套话。`,
   ...(teamProfile === "quality" ? {} : lightTier),
 });
