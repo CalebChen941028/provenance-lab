@@ -1,24 +1,26 @@
 {
-  "version": "0.1",
-  "description": "ProvenanceLab 引文深审植错测试集期望判定。verification=verify 的案例须在首次计分前人工核验 ground truth（PubMed 出版类型 / Crossref Retraction Watch）。",
-  "problem_case_pass_rule": "问题案例（S1-S10）计为检出 = 05a 中该条被判为问题（任一维度不达标），且 expected 中给出的具体维度判定一致",
-  "clean_case_pass_rule": "S11 未被误报为问题（isPrimary=primary、accuracy=supported、necessity=necessary、retractionStatus=clean）",
+  "version": "0.2",
+  "description": "ProvenanceLab 引文深审植错测试集期望判定。v0.2 全部案例的标识符、题录与状态已于 2026-10-24 经 PubMed E-utilities / Crossref / OpenAlex 逐条核验（见各案例 verified_by）；v0.1 中 S4、S8 的 DOI 指向无关论文，PMID 35149136 被误标为横断面研究（实为 meta 分析），S10 的陈述与原文主题不符，均已修正。",
+  "problem_case_pass_rule": "问题案例（S1-S9）计为检出 = 05a 中该条被判为问题（任一维度不达标），且 expected 中给出的具体维度判定一致",
+  "non_problem_case_pass_rule": "非问题案例（S10-S11）计为通过 = 未被判为问题；S10 另须在明细中标注 retractionStatus=corrected",
   "cases": [
     {
       "id": "S1",
       "error_type": "fabricated_reference",
-      "claim": "十年队列证实屏幕暴露损害睡眠轨迹",
+      "claim": "十年出生队列证实屏幕暴露损害睡眠轨迹",
       "expected": { "isPrimary": "untraceable" },
       "ground_truth": "PMID 99999999 不存在于 PubMed；2031 年为未来年份",
-      "verification": "confirmed"
+      "verification": "confirmed",
+      "verified_by": "esummary 返回 error: cannot get document summary"
     },
     {
       "id": "S2",
       "error_type": "fabricated_reference",
-      "claim": "数字睡眠干预随机试验",
+      "claim": "青少年数字睡眠干预随机试验",
       "expected": { "isPrimary": "untraceable" },
       "ground_truth": "DOI 10.1093/fake/journal-2099 为编造，无法解析",
-      "verification": "confirmed"
+      "verification": "confirmed",
+      "verified_by": "Crossref works 404；doi.org 404"
     },
     {
       "id": "S3",
@@ -26,77 +28,85 @@
       "claim": "MMR 疫苗与自闭症联系",
       "expected": { "retractionStatus": "retracted", "accuracy": "unsupported" },
       "ground_truth": "Wakefield 1998（PMID 9500320）已于 2010 年被 Lancet 撤稿；作为证据引用必须被拒",
-      "verification": "confirmed"
+      "verification": "confirmed",
+      "verified_by": "PubMed 出版类型含 Retracted Publication"
     },
     {
       "id": "S4",
       "error_type": "retracted_cited_as_evidence",
-      "claim": "STAP 现象",
+      "claim": "STAP 现象提示外部刺激的深远生物学效应",
       "expected": { "retractionStatus": "retracted" },
-      "ground_truth": "Obokata et al. Nature 2014（doi:10.1038/nature12997）已撤稿",
-      "verification": "verify"
+      "ground_truth": "Obokata et al. Nature 2014;505:641-647（doi:10.1038/nature12968，PMID 24476887）已撤稿（撤稿声明 doi:10.1038/nature13598）",
+      "verification": "confirmed",
+      "verified_by": "Crossref updated-by type=retraction；OpenAlex is_retracted=true"
     },
     {
       "id": "S5",
       "error_type": "overstated_causal_claim",
-      "claim": "交叉滞后研究'证明了因果性导致'",
+      "claim": "交叉滞后研究'证明了 PSU 因果性地导致睡眠质量下降'",
       "expected": { "accuracy": "overstated" },
-      "ground_truth": "PMID 34299887 为双向交叉滞后（PSU→睡眠与睡眠→PSU 并存）；'证明因果性导致'的单向断言超出证据",
-      "verification": "confirmed"
+      "ground_truth": "PMID 34299887 为 1039 名台湾 7–12 年级学生两波交叉滞后研究，结论为睡眠问题与 PSU 双向互预测；单向因果断言超出证据",
+      "verification": "confirmed",
+      "verified_by": "PubMed 摘要：sleep problems at Time 1 predicted PSU at Time 2 and vice versa; relationships are reciprocal"
     },
     {
       "id": "S6",
       "error_type": "overstated_mechanism_claim",
-      "claim": "横断面研究'直接证明神经机制损害'",
+      "claim": "meta 分析'直接证明了手机成瘾损害睡眠的神经机制'",
       "expected": { "accuracy": "overstated" },
-      "ground_truth": "PMID 35149136 为横断面相关（r≈0.30）；不能支撑机制或因果断言",
-      "verification": "confirmed"
+      "ground_truth": "PMID 35149136 为观察性研究的 meta 分析（29 项研究，汇总 r = 0.30）；相关性汇总不能支撑机制或因果断言",
+      "verification": "confirmed",
+      "verified_by": "PubMed 出版类型 Meta-Analysis；摘要报告 summary r = 0.30, 95%CI 0.25-0.34"
     },
     {
       "id": "S7",
       "error_type": "misattribution",
-      "claim": "将双向纵向发现归于横断面文献",
+      "claim": "将'睡眠问题预测后续 PSU 上升'的纵向发现归于 meta 分析",
       "expected": { "accuracy": "unsupported" },
-      "ground_truth": "PMID 35149136（横断面）不含'睡眠预测后续 PSU'的纵向发现（出自 PMID 34299887）",
-      "verification": "confirmed"
+      "ground_truth": "PMID 35149136（截面关联的 meta 分析）不含'睡眠问题预测后续 PSU'的纵向发现，该发现出自 PMID 34299887",
+      "verification": "confirmed",
+      "verified_by": "两篇 PubMed 摘要对照"
     },
     {
       "id": "S8",
       "error_type": "secondhand_as_primary",
       "claim": "meta 分析被称为'原始队列研究'",
       "expected": { "isPrimary": "secondary-needs-tracing" },
-      "ground_truth": "doi:10.1371/journal.pone.0157888 为 meta 分析（二手合成），非原始队列",
-      "verification": "verify"
+      "ground_truth": "Carter et al. JAMA Pediatr 2016（doi:10.1001/jamapediatrics.2016.2341，PMID 27802500）为系统综述与 meta 分析（纳入 20 项横断面研究），非原始队列",
+      "verification": "confirmed",
+      "verified_by": "PubMed 标题含 A Systematic Review and Meta-analysis；OpenAlex is_retracted=false"
     },
     {
       "id": "S9",
       "error_type": "wrong_context_citation",
-      "claim": "与睡眠/PSU 无关的治疗依从性陈述挂引用",
+      "claim": "与睡眠/PSU 无关的抑郁数字化干预依从性陈述挂引用",
       "expected": { "necessity": "wrong-context" },
       "ground_truth": "PMID 34299887 内容与'抑郁数字化干预依从性'无关",
-      "verification": "confirmed"
+      "verification": "confirmed",
+      "verified_by": "PubMed 摘要"
     },
     {
       "id": "S10",
       "error_type": "corrected_publication",
-      "claim": "如实引用的更正状态文献",
-      "expected": { "retractionStatus": "corrected" },
-      "ground_truth": "PMID 40328832 为出版者更正（Correction: PMID 40506455）；规则=保留引用但注明引用更正后版本，不应判为问题引用",
-      "verification": "verify",
-      "pass_rule": "该条不应被计为问题（corrected 属可保留），但须在明细中被标注为 corrected"
+      "claim": "父母积极介入负向预测青少年智能手机成瘾（准确陈述）",
+      "expected": { "retractionStatus": "corrected", "accuracy": "supported" },
+      "ground_truth": "PMID 40328832（Sci Rep 2025，5841 名中国青少年）摘要报告 active mediation 负向预测智能手机成瘾；该文有出版者更正（PMID 40506455）。规则=保留引用并注明引用更正后版本，不应判为问题引用",
+      "verification": "confirmed",
+      "verified_by": "PubMed 记录含 Erratum in；PMID 40506455 出版类型 Published Erratum"
     },
     {
       "id": "S11",
       "error_type": "clean_control",
-      "claim": "横断面相关 r≈0.30 的准确描述",
+      "claim": "meta 分析报告手机成瘾与睡眠障碍呈弱至中等正相关（汇总 r = 0.30）",
       "expected": { "isPrimary": "primary", "accuracy": "supported", "necessity": "necessary", "retractionStatus": "clean" },
-      "ground_truth": "对 PMID 35149136 的准确、适度引用",
-      "verification": "confirmed"
+      "ground_truth": "对 PMID 35149136 的准确、适度引用：陈述的汇总相关正是该 meta 分析自身的结果",
+      "verification": "confirmed",
+      "verified_by": "PubMed 摘要：weak-to-moderate positive correlations (summary r = 0.30)"
     }
   ],
   "scoring": {
-    "sensitivity": "检出问题案例数 / 10（S1-S10；S10 按其特殊 pass_rule 计）",
-    "specificity": "干净对照未误报（0 或 1）",
-    "additional": "记录各案例 resolvedSource 的全文/摘要层级；正式记录报 3 次运行均值±范围"
+    "sensitivity": "检出问题案例数 / 9（S1-S9）",
+    "specificity": "非问题案例未被误报数 / 2（S10-S11；S10 还须标注 corrected）",
+    "additional": "记录各案例 textLevel（fulltext/abstract/private/none）；正式记录报 3 次运行均值±范围；确定性层（tools/plab.py resolve）对 S1-S4 的判定单独报告"
   }
 }

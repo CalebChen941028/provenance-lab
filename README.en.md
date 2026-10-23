@@ -98,7 +98,7 @@ Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pip
 The slogan demands every claim stands scrutiny — the evaluation system itself included:
 
 - **L0 telemetry**: every run writes `99-metrics.json` (gate pass rates, revision rounds, audit stats) for cross-run baselines; optimizations must not degrade the metrics
-- **L1 seeded-error suite**: `evaluation/` ships 11 known-bad citations (fabricated / retracted / overstated / misattributed / secondhand / wrong-context / corrected) plus a clean control and expected verdicts — measure the citation-audit gate's sensitivity/specificity with one run; protocol in [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+- **L1 seeded-error suite**: `evaluation/` ships 11 citations (9 seeded errors: fabricated / retracted / overstated / misattributed / secondhand / wrong-context; 1 corrected publication; 1 clean control), every identifier and status verified against PubMed/Crossref/OpenAlex, with expected verdicts — measure the citation-audit gate's sensitivity/specificity with one run; protocol in [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
 
 ## Roadmap
 

@@ -14,12 +14,12 @@
 
 **怎么跑**：
 
-1. **首次使用前必做——ground truth 核验**：`expected.json` 中 `verification: "verify"` 的案例，先经 PubMed 出版类型 / Crossref Retraction Watch 人工确认 ground truth 再计分（本集由作者记忆构建，防"评测集自己幻觉"）
-2. 运行：`/provenance-lab` → 模式选 `cross-validate` 之外的 `citation-audit` → `draftPath` 指向 `citation-error-cases/seeded-draft.md`（跨 harness：按 core 协议对 seeded-draft 执行 S7.5 流程）
-3. 评分：将产出的 `05a-citation-audit.md` 与 `expected.json` 对照。建议由**全新会话**的 agent 辅助评分（避免运行上下文偏见），或人工逐条：
-   - **问题案例**（S1–S10）判"通过" = 该条在 05a 中被标为问题（任一维度不达标，或按 expected 给出的具体维度判定一致）
-   - **干净对照**（S11）判"通过" = 未被误报为问题
-   - 汇总：敏感度 = 检出问题数/10；特异度 = 干净未误报数/1；附各案例文本层级（textLevel：全文/仅摘要级/无原文）
+1. **ground truth 核验**：v0.2 全部案例已于 2026-10-24 经 PubMed / Crossref / OpenAlex 逐条核验（`verified_by` 字段记录依据）。v0.1 由作者记忆构建，核验发现 S4、S8 的 DOI 指向无关论文、PMID 35149136 被误标为横断面研究（实为 meta 分析）、S10 陈述与原文主题不符，且参考文献条目附带了泄露答案的提示语——v0.1 的任何得分均不可用。今后新增案例必须先过 API 核验再入集
+2. 运行：`/provenance-lab` → 模式选 `citation-audit` → `draftPath` 指向 `citation-error-cases/seeded-draft.md`（跨 harness：按 core 协议对 seeded-draft 执行 S7.5 流程）
+3. 评分：将产出的引文深审明细与 `expected.json` 对照。建议由**全新会话**的 agent 辅助评分（避免运行上下文偏见），或人工逐条：
+   - **问题案例**（S1–S9）判"通过" = 该条被标为问题（任一维度不达标），且 expected 给出的具体维度判定一致
+   - **非问题案例**（S10 更正状态文献、S11 干净对照）判"通过" = 未被判为问题；S10 还须标注 retractionStatus=corrected
+   - 汇总：敏感度 = 检出问题数/9；特异度 = 非问题案例未误报数/2；附各案例文本层级（textLevel：全文/仅摘要级/无原文）
 
 **节奏**：任何对引文深审/文献状态审计人设或流程的修改后必须重跑；LLM 非确定性——正式记录报 **3 次运行的均值±范围**。结果汇总表提交至 `evaluation/results/`（单次原始产物加入 .gitignore 不提交）。
 

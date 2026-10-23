@@ -181,7 +181,7 @@ name: "科研：<主题短标签>"
 ## 评测（衡量这个 skill 的准确性）
 
 - **L0 遥测（自动）**：每次全流程运行落盘 `99-metrics.json` 并随返回携带 `metrics` 字段——关卡通过率/退回轮数/深审统计等，跨运行汇总成基线；**任何优化前后指标不得恶化**是合入条件
-- **L1 植错测试**：仓库 `evaluation/`（协议 + 11 例植错草稿 + 期望判定）——修改引文深审相关人设/流程后，以 `citation-audit` 模式对 `evaluation/citation-error-cases/seeded-draft.md` 运行并对照 `expected.json` 评分（敏感度/特异度，3 次均值）；`verify` 标记案例首次计分前须人工核验 ground truth
+- **L1 植错测试**：仓库 `evaluation/`（协议 + 11 例引用：9 植错 + 1 更正 + 1 干净对照，均经 API 核验 + 期望判定）——修改引文深审相关人设/流程后，以 `citation-audit` 模式对 `evaluation/citation-error-cases/seeded-draft.md` 运行并对照 `expected.json` 评分（敏感度/特异度，3 次均值）；新增案例须先经 API 核验 ground truth 再入集
 
 ## 免责声明（必须向用户传达的边界）
 
