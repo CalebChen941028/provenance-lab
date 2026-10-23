@@ -26,14 +26,14 @@
 ## 2. 流水线阶段
 
 ### S1 立题（角色：选题主席）
-把模糊想法凝练为：PICO/PECO 结构、可检验假设（H0/H1）、匹配设计（队列/病例对照/横断/RCT/心理测量…）、报告规范（观察性=STROBE、RCT=CONSORT、综述=PRISMA、心理按 APA 惯例）、FINER 评估与新颖性定位、2-3 本目标期刊。产出 `01-research-question.md`。
+把模糊想法凝练为：PICO/PECO 结构、可检验假设（H0/H1）、匹配设计（队列/病例对照/横断/RCT/心理测量…）、报告规范（观察性=STROBE、RCT=CONSORT、综述=PRISMA、心理按 APA 惯例）、FINER 评估与新颖性定位、2-3 本目标期刊、领域判定（clinical/epidemiology/psychology/other-health，决定 S2 检索路由；护理、公共卫生、药学、康复、营养等相关健康科学判为 other-health 并注明最邻近主域）。产出 `01-research-question.md`。
 **关卡**：方法学评审（换人）只挑方向性错误；有问题退回修订一轮。
 
 ### S2 文献证据（角色：检索员×N → 证据综合员）
 **按学科路由的多库并行检索**（合法性分层）：
 - 基础三库：PubMed、EuropePMC（含 bioRxiv/medRxiv 预印本集合）、OpenAlex
 - 恒定补充：Semantic Scholar（官方免费 API，跨学科与引文网络）
-- 按领域加挂：clinical→ClinicalTrials.gov；epidemiology→bioRxiv；psychology→arXiv（心理测量/定量方法）
+- 按领域加挂：clinical→ClinicalTrials.gov；epidemiology→bioRxiv；psychology→arXiv（心理测量/定量方法）；other-health→不加挂领域源，回落基础三库 + Semantic Scholar
 - 用户扩展（extraSources）：仅限官方 API/合法开放途径
 - **合法性铁律**：禁止爬取 Google Scholar（违反其 ToS）；订阅库（Scopus/WoS/Embase/PsycINFO）仅在用户已提供机构 API key 时启用，否则跳过并如实说明
 
@@ -66,7 +66,7 @@
 
 ### S5 论文初稿（角色：医学写作者，STORM 式大纲驱动）
 
-**语态规范（自动生效）**：按 §0 第 10 条内嵌摘要执行；本机存在伴生技能 natural-voice/SKILL.md 时先读其完整清单。适用于本流水线全部交付文档（立题书/证据表/SAP/初稿/回应信/清单/审计包/总结）——结构化文档执行其学术子集（直陈、术语统一、无黑话、无防御性免责），成文类文档（初稿/回应信/总结）执行完整规范。
+**语态规范（自动生效）**：按 §0 第 11 条内嵌摘要执行；本机存在伴生技能 natural-voice/SKILL.md 时先读其完整清单。适用于本流水线全部交付文档（立题书/证据表/SAP/初稿/回应信/清单/审计包/总结）——结构化文档执行其学术子集（直陈、术语统一、无黑话、无防御性免责），成文类文档（初稿/回应信/总结）执行完整规范。
 按报告规范 + IMRaD 撰写：引言（漏斗→研究空白）、方法（引用 SAP 与脚本）、结果（总体→分层，每个结论带效应量与 CI，指向图表）、讨论（与证据表文献逐条对照、局限、意义）、结构式摘要。标题页含 AI 使用声明与伦理声明占位（数据来源、批准/豁免状态，批准号由作者填写）。
 **引用白名单制度**：只准引用已核查证据表内的文献（带 PMID/DOI）或本研究自身结果；绝不引入未核查新文献，绝不编造引文。模拟数据口径全文显式标注。产出 `06-draft.md`。
 
