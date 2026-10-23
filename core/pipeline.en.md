@@ -19,7 +19,7 @@
 
 ## 1. Research interview (grill-style, before launch)
 
-One question at a time with recommended answers, covering: ① core intent (prove vs explore); ② causal vs descriptive; ③ population/outcome priorities; ④ data reality (folder-picker popups where supported; simulated-data demo if none — user must consent); ⑤ private PDF library (optional); ⑥ analysis expectations **and inclusion preferences** (study types, year range, language limits, must-include papers as PMID/DOI → `inclusionPrefs`; missing must-includes are flagged loudly, never silently dropped); ⑦ target journals; ⑧ intended use (publication/thesis/internal) → review strictness; ⑨ delivery language; ⑩ first-time users: enable the `sap` checkpoint.
+One question at a time with recommended answers, covering: ① core intent (prove vs explore); ② causal vs descriptive; ③ population/outcome priorities; ④ data reality (folder-picker popups where supported; simulated-data demo if none — user must consent); ⑤ private PDF library (optional); ⑥ analysis expectations **and inclusion preferences** (study types, year range, language limits, must-include papers as PMID/DOI → `inclusionPrefs`; missing must-includes are flagged loudly, never silently dropped); ⑦ target journals; ⑧ intended use (publication/thesis/internal) → review strictness; ⑨ delivery language (auto-suggested: target-journal language first, session language second; one-click confirm/override); ⑩ first-time users: enable the `sap` checkpoint.
 
 ## 2. Pipeline stages
 
