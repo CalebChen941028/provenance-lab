@@ -582,7 +582,7 @@ if (mode !== "pipeline") {
     if (adversarial) {
       const challenger = agent("Solo·Challenger", { system: "你的唯一任务是找出稿件的致命缺陷：夸大结论、数据与文字不符、引用与原文不符。亲自核对（不要改文件），找到实证才提出，找不到就明说。" });
       const attack = await challenger.ask<{ found: boolean; issues: string[] }>(`稿件：${draftPathArg}\n请攻击。找到有实证的致命缺陷则 found=true 并逐条列入 issues；没有则 found=false、issues 为空数组。${langNote}`);
-      if (attack.found) majors.push(...attack.issues.map((i) => `[对抗挑战] ${i}`));
+      if (attack.found) majors.push(...(attack.issues ?? []).map((i) => `[对抗挑战] ${i}`));
     }
     const scribe2 = agent("Solo·ReviewSummary", { system: "你把多位评审人的意见汇总成一份给作者的评审报告（major/minor 分组、逐条可执行）。只写有依据的内容。", ...(teamProfile === "quality" ? {} : lightTier) });
     const reviewMd = await scribe2.ask<string>(`直接返回 Markdown 文本。评审意见：${JSON.stringify(reviews)}${majors.length > 0 ? `\n对抗挑战：${majors.join("；")}` : ""}${langNote}`);
@@ -789,7 +789,9 @@ const gateResolve = async (papers: PaperRecord[], name: string): Promise<PlabRec
   const res = await plab<{ records: PlabRecord[] }>(["resolve", "--file", file, "--out", `${TOOLS_OUT}/${name}.json`]);
   return res && res.records.length === papers.length ? res.records : null;
 };
-const withDeterministic = (check: CitationCheck, papers: PaperRecord[], recs: PlabRecord[] | null): CitationCheck => {
+const withDeterministic = (raw: CitationCheck, papers: PaperRecord[], recs: PlabRecord[] | null): CitationCheck => {
+  // 结构化返回缺字段时按空数组处理，避免后续剔除逻辑在 .join/.includes 上中断
+  const check: CitationCheck = { ...raw, failures: raw.failures ?? [], failedIds: raw.failedIds ?? [] };
   if (!recs) return check;
   const det = recs.flatMap((r, i) => {
     const id = papers[i].id;
@@ -861,7 +863,7 @@ phase("Analysis");
 stage("分析执行", "in-progress");
 const analyst = agent("Analyst·数据分析员", {
   system:
-    `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只打印 schema（列名/类型/行数/缺失概况）——优先用「python3 ${SKILLS}/provenance-lab/tools/plab.py schema <数据文件>」（只输出结构与计数、标出疑似直接标识列，不含任何单元格取值），工具不存在时自写等价脚本，此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。编排纪律（token 预算）：读写自己的脚本与日志时只操作增量片段（tail/局部重写，不整文件重读重写）；每个计算单元的结果以摘要行回读（关键统计量+状态），不把大表贴回上下文；重跑决策先查缓存文件存在性与校验和，避免无谓全量重跑。长计算分块（每块目标 ≤10 分钟）：蒙特卡洛等重计算按块执行、每块落盘部分结果，并在 ${OUT}/04-analysis/run-heartbeat.log 追加心跳行（块名+时间+一行状态）供外部监测。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。通俗注释铁律（玻璃箱，白话遵循 natural-voice 的 Part 4 受控白话层：短句/单句单概念/一词一义/祈使句核对动作）：每个主要代码块（数据清洗、建模、每张图表）上方必须有三行注释——【做什么】一句白话（初高中可懂）；【为什么】方法学理由与对应的研究假设/变量；【怎么核对】指出本块输出对应哪个文件哪个数字，供非代码背景研究者逐块人工校对。返回结构化结果时，所有路径字段（scriptPath/outputsPath）必须是纯路径（无括号描述、无附加文字），目录字段以实际存在的入口文件代替。把脚本与输出写入目录后返回。`,
+    `你是数据分析员。严格按 SAP 执行，不得临时更换主分析（要改须先说明并取得 SAP 一致）。用 uv 管理依赖（先读 ${SKILLS}/uv/SKILL.md），Python 技术栈（pandas/statsmodels/scipy/pingouin 按需）。脚本固定随机种子、可一键重跑；${dataPath ? `使用用户提供的真实数据（${dataPath}）` : "没有真实数据时生成固定种子模拟数据完成整套流水线演示，并在一切输出中显式标注“模拟数据”"}。数据安全铁律（code-to-data）：绝不把原始数据行读入你的上下文——第一步只打印 schema（列名/类型/行数/缺失概况）——优先用「python3 ${SKILLS}/provenance-lab/tools/plab.py schema <数据文件>」（只输出结构与计数、标出疑似直接标识列，不含任何单元格取值），工具不存在时自写等价脚本，此后一切处理都写成脚本执行，只有汇总统计与图表文件回到对话；分析前先检查并剔除或脱敏直接标识列（姓名、证件号、电话、详细地址、精确日期等，日期转为相对或区间），任何输出文件不得包含行级标识符；原始数据文件只读（不修改、不移动、不删除），唯一允许的写入是产物目录 ${OUT}/。编排纪律（token 预算）：读写自己的脚本与日志时只操作增量片段（tail/局部重写，不整文件重读重写）；每个计算单元的结果以摘要行回读（关键统计量+状态），不把大表贴回上下文；重跑决策先查缓存文件存在性与校验和，避免无谓全量重跑。长计算分块（每块目标 ≤10 分钟）：蒙特卡洛等重计算按块执行、每块落盘部分结果，并在 ${OUT}/04-analysis/run-heartbeat.log 追加心跳行（块名+时间+一行状态）供外部监测。报告每个结论的效应量与 95% CI，不只给 p 值。前提假设不满足时按 SAP 的备选方案执行并如实记录；执行中每个方法选择与任何偏离 SAP 的决定都写进 decisions 并给理由（供人工校对）。通俗注释铁律（玻璃箱，白话遵循 natural-voice 的 Part 4 受控白话层：短句/单句单概念/一词一义/祈使句核对动作）：每个主要代码块（数据清洗、建模、每张图表）上方必须有三行注释——【做什么】一句白话（初高中可懂）；【为什么】方法学理由与对应的研究假设/变量；【怎么核对】指出本块输出对应哪个文件哪个数字，供非代码背景研究者逐块人工校对。可移植性铁律：脚本内的文件路径一律相对脚本所在目录（Python 用 Path(__file__).resolve().parent，R 用脚本目录），禁止写死 /Users/、/home/ 等本机绝对路径——产物目录被移动或他人复现时必须仍能一键重跑（真实数据路径作为参数或环境变量传入）。返回结构化结果时，所有路径字段（scriptPath/outputsPath）必须是纯路径（无括号描述、无附加文字），目录字段以实际存在的入口文件代替。把脚本与输出写入目录后返回。`,
 });
 const analysis = await analyst.ask<AnalysisResult>(
   `SAP：${JSON.stringify(sap)}\n数据：${dataPath || "无（模拟演示）"}\n输出目录：${OUT}/04-analysis/（脚本、tables/、figures/）。完成后自行重跑一次脚本确认退出码 0，并写进 reproducibility。${langNote}`,
@@ -880,7 +882,18 @@ if (verifyCommand) {
     analysis.reproducibility = `修复后重跑退出码 ${retry.exitCode}${reproFailed ? `（仍失败）：${reproFailureDetail}` : "（通过）"}`;
   }
 }
-stage("分析执行", reproFailed ? "issues" : "passed");
+// 可移植性检查（确定性）：脚本写死本机绝对路径时"一键重跑"只在本机成立，退回分析员改为相对路径
+const findAbsPaths = async (): Promise<string[]> => {
+  const r = await world.run("sh", ["-c", "grep -rlE '(/Users/|/home/)[A-Za-z0-9_.-]+/' \"$1\" --include='*.py' --include='*.R' --include='*.r' --include='*.sh' --exclude-dir='*venv*' --exclude-dir=site-packages --exclude-dir=node_modules --exclude-dir=renv --exclude-dir=__pycache__ 2>/dev/null || true", "sh", analysis.outputsPath]);
+  return r.stdout.split("\n").map((x) => x.trim()).filter((x) => x !== "");
+};
+let absPathFiles = await findAbsPaths();
+if (absPathFiles.length > 0) {
+  await analyst.ask(`可移植性检查：以下脚本写死了本机绝对路径，产物目录一移动就无法重跑。请改为相对脚本所在目录（Path(__file__).resolve().parent），改完自行重跑确认退出码 0 且输出不变：\n${absPathFiles.join("\n")}`);
+  absPathFiles = await findAbsPaths();
+}
+if (absPathFiles.length > 0) analysis.reproducibility += `；可移植性未通过：${absPathFiles.length} 个脚本仍含本机绝对路径`;
+stage("分析执行", reproFailed || absPathFiles.length > 0 ? "issues" : "passed");
 record(`分析完成（${analysis.realData ? "真实数据" : "模拟演示"}）：${analysis.keyFindings[0] ?? "无关键发现"}；复现：${analysis.reproducibility}`);
 
 phase("StatReview");
@@ -987,7 +1000,7 @@ const reviewRound = async (ask: string): Promise<string[]> => {
   const majors = allReviews.flatMap((r) => r.majorIssues);
   if (adversarial) {
     const attack = await challenger.ask<{ found: boolean; issues: string[] }>(`初稿：${draft.draftPath}\n分析输出：${analysis.outputsPath}\n请攻击。找到有实证的致命缺陷则 found=true 并逐条列入 issues；没有则 found=false、issues 为空数组。`);
-    if (attack.found) majors.push(...attack.issues.map((i) => `[对抗挑战] ${i}`));
+    if (attack.found) majors.push(...(attack.issues ?? []).map((i) => `[对抗挑战] ${i}`));
   }
   return majors;
 };
@@ -1218,6 +1231,7 @@ if (!finalCheckRan) notCovered.push("确定性引文终检未能运行（tools/p
 if (finalCheck.wl && finalCheck.wl.unidentified.length > 0) notCovered.push(`${finalCheck.wl.unidentified.length} 条参考文献无 PMID/DOI（多为专著与经典方法学文献），终检无法核对其是否在白名单内，须人工确认`);
 if (!analysis.realData) notCovered.push("未运行真实数据分析（未提供 dataPath）；提供后可从统计计划阶段重跑");
 if (!verifyCommand) notCovered.push("复现性由分析员自报重跑退出码，未经脚本统一关卡");
+if (absPathFiles.length > 0) notCovered.push(`${absPathFiles.length} 个分析脚本仍写死本机绝对路径（${absPathFiles.join("、")}），换机器或移动目录后须先改路径才能重跑`);
 if (reproFailed) notCovered.push(`复现关卡未通过（${verifyCommand} 修复重试后仍失败），分析结果在修复前不可作为结论依据`);
 if (citationAudit.problems > 0) notCovered.push(`引文深审遗留 ${citationAudit.problems} 条问题引用（详见 05a 明细），投稿前需人工复核`);
 const abstractOnlyCount = citationAudit.entries.filter((e) => e.textLevel === "abstract").length;

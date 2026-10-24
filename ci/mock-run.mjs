@@ -91,7 +91,8 @@ function respond(name, prompt, opts) {
       w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
       return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: `${OUT}/03-sap.md` };
     case "Analyst":
-      w(`${OUT}/04-analysis/run.py`, "print('ok')\n");
+      // first version hard-codes a home path; only the portability request makes it relative
+      w(`${OUT}/04-analysis/run.py`, prompt.includes("可移植性检查") ? "from pathlib import Path\nHERE = Path(__file__).resolve().parent\n" : 'HERE = "/Users/someone/project/04-analysis"\n');
       return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: `${OUT}/04-analysis`, keyFindings: ["r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
     case "StatRev":
     case "Reviewer":
@@ -201,6 +202,8 @@ check(result.notCovered.some((s) => s.includes("arXiv")), "failed search source 
 check(stages["文献检索"] === "issues", "search stage marked issues when a source fails");
 check(result.metrics.deterministic.candidates.raw > result.metrics.deterministic.candidates.deduped, "code-side dedup merged duplicate candidates");
 check(fs.existsSync(outFile("05a-citation-audit.json")), "structured 05a JSON written");
+check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
+check(stages["分析执行"] === "passed" && !fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "analysis stage passes once the script uses relative paths");
 
 if (withTools) {
   const net = JSON.parse(fs.readFileSync(outFile("tools/resolve-evidence.json"), "utf8")).records;
