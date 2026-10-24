@@ -383,6 +383,7 @@ const langNote = docLang ? `\n语言要求：所有交付文档与结构化返�
 
 // 混合编队：检索类与汇总可用轻量模型；统计计划、分析、审稿、写作永不降级
 const teamProfile = String(args.teamProfile ?? "hybrid");
+// 默认轻量模型是维护者账户下的 id；其他用户由 SKILL 启动第 2 步传 lightModel，或按 SKILL 说明在下表登记自己的模型 id
 const LIGHT = model("account:bigmodel-individual-coding-plan/GLM-5.3-Flash");
 const LIGHT_MODELS: Record<string, ModelRef> = {
   "account:bigmodel-individual-coding-plan/GLM-5.3": model("account:bigmodel-individual-coding-plan/GLM-5.3"),
