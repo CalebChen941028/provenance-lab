@@ -4,3 +4,4 @@ __pycache__/
 # 评测结果：汇总表（*.md）入库，单次运行原始产物不入库（evaluation/PROTOCOL.md）
 evaluation/results/*
 !evaluation/results/*.md
+node_modules/

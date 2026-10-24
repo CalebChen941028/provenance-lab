@@ -1,0 +1,13 @@
+{
+  "name": "provenance-lab-ci",
+  "private": true,
+  "type": "module",
+  "description": "Type-check and mock-run the ZCode workflow",
+  "scripts": {
+    "typecheck": "node typecheck.mjs",
+    "mock": "node mock-run.mjs && node mock-run.mjs --no-tools"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3"
+  }
+}

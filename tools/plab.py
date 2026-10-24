@@ -421,7 +421,9 @@ def _keys(rec_or_ids: Iterable[str]) -> set[str]:
     return {x.lower() for x in rec_or_ids}
 
 
-def whitelist_check(md: str, allowed: list[str], expand: bool = True, http: Http | None = None) -> dict:
+def whitelist_check(md: str, allowed: list[str], expand: bool = True, http: Http | None = None, deny: list[str] | None = None) -> dict:
+    """deny: identifiers that must not count as allowed even if they appear in an allowed source
+    (e.g. entries the citation gate removed, which an exclusion log may still mention)."""
     refs = cited_references(md)["references"]
     allowed_canon = {canon(*norm_id(a)) for a in allowed}
     allowed_canon.discard("")
@@ -436,6 +438,9 @@ def whitelist_check(md: str, allowed: list[str], expand: bool = True, http: Http
     allowed_keys: set[str] = set()
     for a in allowed_canon:
         allowed_keys |= _keys(groups.get(a, {a}))
+    for d in deny or []:
+        dc = canon(*norm_id(d))
+        allowed_keys -= _keys(groups.get(dc, {dc}))
     outside, unidentified = [], []
     for r in refs:
         if not r["ids"]:
@@ -495,8 +500,11 @@ def _download_pdf(http: Http, url: str, dest: str, md5: str = "") -> tuple[bool,
     return True, ""
 
 
-def oa_fetch(ids: list[str], out_dir: str, http: Http | None = None) -> dict:
+def oa_fetch(ids: list[str], out_dir: str, http: Http | None = None, budget: float = 0) -> dict:
+    """budget: seconds after which no further downloads are attempted (0 = unlimited);
+    the remaining items are listed as not downloaded with that reason."""
     http = http or Http()
+    started = time.time()
     os.makedirs(out_dir, exist_ok=True)
     recs = resolve_records([{"id": i} for i in ids], http)
     downloaded, not_downloaded = [], []
@@ -505,6 +513,9 @@ def oa_fetch(ids: list[str], out_dir: str, http: Http | None = None) -> dict:
         meta = {"id": r["id"], "title": r["title"], "journal": r["journal"], "year": r["year"], "doi": r["doi"], "pmid": r["pmid"]}
         if not r["found"]:
             not_downloaded.append({**meta, "reason": "标识符未能解析" if r["found"] is False else "解析失败（网络）"})
+            continue
+        if budget and time.time() - started > budget:
+            not_downloaded.append({**meta, "reason": f"下载时间预算（{int(budget)} 秒）用尽，未尝试", "doiUrl": f"https://doi.org/{r['doi']}" if r["doi"] else ""})
             continue
         name = safe_filename(r["title"], r["journal"], r["year"])
         if name in used:
@@ -827,7 +838,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("whitelist", help="check cited references against allowed identifiers")
     p.add_argument("draft")
-    p.add_argument("--allowed", required=True, help="JSON list / one-per-line file of allowed ids")
+    p.add_argument("--allowed", help="JSON list / one-per-line file of allowed ids")
+    p.add_argument("--allowed-from", nargs="*", default=[], help="files whose PMIDs/DOIs are also allowed (e.g. the SAP)")
+    p.add_argument("--deny", help="JSON list / one-per-line file of ids that are never allowed")
     p.add_argument("--no-expand", action="store_true", help="skip online PMID↔DOI mapping")
     p.add_argument("--out")
 
@@ -836,6 +849,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--file")
     p.add_argument("--draft", help="take identifiers from this draft's reference list")
     p.add_argument("--dir", required=True)
+    p.add_argument("--budget", type=float, default=0, help="stop attempting downloads after this many seconds")
     p.add_argument("--out")
 
     p = sub.add_parser("dedup", help="merge duplicate candidate records")
@@ -860,15 +874,27 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "cited":
         _emit(cited_references(_read(a.draft)), a.out)
     elif a.cmd == "whitelist":
-        allowed = [x["id"] for x in _read_items(argparse.Namespace(ids=None, file=a.allowed))]
-        _emit(whitelist_check(_read(a.draft), allowed, expand=not a.no_expand), a.out)
+        allowed = [x["id"] for x in _read_items(argparse.Namespace(ids=None, file=a.allowed))] if a.allowed else []
+        missing = []
+        for path in a.allowed_from:
+            if os.path.exists(path):
+                allowed += extract_ids(_read(path))
+            else:
+                missing.append(path)
+        deny = [x["id"] for x in _read_items(argparse.Namespace(ids=None, file=a.deny))] if a.deny else []
+        if not allowed:
+            ap.error("whitelist needs --allowed or --allowed-from")
+        result = whitelist_check(_read(a.draft), allowed, expand=not a.no_expand, deny=deny)
+        if missing:
+            result["allowedFromMissing"] = missing
+        _emit(result, a.out)
     elif a.cmd == "oa-fetch":
         ids = [x["id"] for x in _read_items(a)]
         if a.draft:
             ids += [r["ids"][0] for r in cited_references(_read(a.draft))["references"] if r["ids"]]
         if not ids:
             ap.error("oa-fetch needs ids, --file or --draft")
-        _emit(oa_fetch(list(dict.fromkeys(ids)), a.dir), a.out)
+        _emit(oa_fetch(list(dict.fromkeys(ids)), a.dir, budget=a.budget), a.out)
     elif a.cmd == "dedup":
         _emit(dedup_records(json.loads(_read(a.file))), a.out)
     elif a.cmd == "schema":

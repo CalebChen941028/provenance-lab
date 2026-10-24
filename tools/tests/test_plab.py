@@ -79,6 +79,11 @@ class Whitelist(unittest.TestCase):
         self.assertEqual(len(r["unidentified"]), 1)
         self.assertEqual(r["identified"], 2)
 
+    def test_deny_overrides_allowed(self):
+        md = "## References\n1. A. PMID: 111\n2. B. PMID: 222\n"
+        r = plab.whitelist_check(md, ["PMID:111", "PMID:222"], expand=False, deny=["222"])
+        self.assertEqual([x["label"] for x in r["outside"]], ["2"])
+
 
 class Dedup(unittest.TestCase):
     def test_merges_by_id_and_by_title_year(self):
