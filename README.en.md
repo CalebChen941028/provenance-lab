@@ -50,6 +50,8 @@ The biggest risk of multi-agent research automation is not failure to produce â€
 
 Citation selection ranks by **relevance, evidence level, and methodological quality â€” never by journal prestige or citation counts** (avoiding citation bias).
 
+D39: wording and qualifier warnings are corrected and re-checked without discarding correctable negative evidence. Statistical checks support Markdown/CI and disclose zero matches and unresolved identifiers. Design-stage power scripts ship with the frozen SAP; unknown PDF licences and download failure reasons remain explicit. Disclose recent minor notes without verified closure; figure revisions without another visual check are not accepted, and delivery status reflects failed gates.
+
 ## Install
 
 ```bash

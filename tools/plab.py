@@ -352,7 +352,7 @@ def resolve_records(items: list[dict], http: Http | None = None, full: bool = Tr
                 status_hits.append(("retracted", "OpenAlex: is_retracted"))
             oa = w.get("open_access") or {}
             best = w.get("best_oa_location") or {}
-            rec["oa"] = {"isOa": oa.get("is_oa"), "pdfUrl": best.get("pdf_url") or "", "pmcid": rec["pmcid"]}
+            rec["oa"] = {"isOa": oa.get("is_oa"), "pdfUrl": best.get("pdf_url") or "", "pmcid": rec["pmcid"], "license": best.get("license") or ""}
         elif rec["pmcid"]:
             rec["oa"]["pmcid"] = rec["pmcid"]
 
@@ -538,7 +538,7 @@ def oa_fetch(ids: list[str], out_dir: str, http: Http | None = None, budget: flo
         if r["oa"].get("pdfUrl"):
             ok, why = _download_pdf(http, r["oa"]["pdfUrl"], dest)
             if ok:
-                downloaded.append({**meta, "file": name, "source": "OpenAlex best OA location", "license": "", "bytes": os.path.getsize(dest)})
+                downloaded.append({**meta, "file": name, "source": "OpenAlex best OA location", "license": r["oa"].get("license", ""), "bytes": os.path.getsize(dest)})
                 used.add(name)
                 continue
             tried.append(f"OA 位置 {r['oa']['pdfUrl']}: {why}")
@@ -734,12 +734,14 @@ def p_value(test: str, stat: float, df1: float | None, df2: float | None) -> flo
 _NUM = r"[-−–]?\d*\.?\d+"
 _P = r"p\s*(?P<op>[<>=≤≥])\s*(?P<p>0?\.\d+|1(?:\.0+)?|\d\.\d+e-?\d+)"
 _SEP = r"\s*[,，;；]\s*"
+# Only a bounded CI may intervene: never borrow a p value from another sentence/table cell.
+_STAT_P_SEP = rf"{_SEP}(?:(?:\d+(?:\.\d+)?\s*%\s*)?CI\s*[\[(]\s*{_NUM}\s*[,，]\s*{_NUM}\s*[\])]{_SEP})?"
 _PATTERNS = [
-    ("t", re.compile(rf"\bt\s*\(\s*(?P<d1>\d+(?:\.\d+)?)\s*\)\s*=\s*(?P<s>{_NUM}){_SEP}{_P}", re.I)),
-    ("F", re.compile(rf"\bF\s*\(\s*(?P<d1>\d+(?:\.\d+)?)\s*[,，]\s*(?P<d2>\d+(?:\.\d+)?)\s*\)\s*=\s*(?P<s>{_NUM}){_SEP}{_P}", re.I)),
-    ("chi2", re.compile(rf"(?:χ²|χ2|χ\^2|chi2|chi-square|X2)\s*\(\s*(?P<d1>\d+)(?:\s*[,，]\s*N\s*=\s*\d+)?\s*\)\s*=\s*(?P<s>{_NUM}){_SEP}{_P}", re.I)),
-    ("r", re.compile(rf"\br\s*\(\s*(?P<d1>\d+)\s*\)\s*=\s*(?P<s>{_NUM}){_SEP}{_P}", re.I)),
-    ("z", re.compile(rf"\bz\s*=\s*(?P<s>{_NUM}){_SEP}{_P}", re.I)),
+    ("t", re.compile(rf"\bt\s*\(\s*(?P<d1>\d+(?:\.\d+)?)\s*\)\s*=\s*(?P<s>{_NUM}){_STAT_P_SEP}{_P}", re.I)),
+    ("F", re.compile(rf"\bF\s*\(\s*(?P<d1>\d+(?:\.\d+)?)\s*[,，]\s*(?P<d2>\d+(?:\.\d+)?)\s*\)\s*=\s*(?P<s>{_NUM}){_STAT_P_SEP}{_P}", re.I)),
+    ("chi2", re.compile(rf"(?:χ²|χ2|χ\^2|chi2|chi-square|X2)\s*\(\s*(?P<d1>\d+)(?:\s*[,，]\s*N\s*=\s*\d+)?\s*\)\s*=\s*(?P<s>{_NUM}){_STAT_P_SEP}{_P}", re.I)),
+    ("r", re.compile(rf"\br\s*\(\s*(?P<d1>\d+)\s*\)\s*=\s*(?P<s>{_NUM}){_STAT_P_SEP}{_P}", re.I)),
+    ("z", re.compile(rf"\bz\s*=\s*(?P<s>{_NUM}){_STAT_P_SEP}{_P}", re.I)),
 ]
 
 
@@ -748,6 +750,8 @@ def _decimals(s: str) -> int:
 
 
 def statcheck_text(text: str, alpha: float = 0.05) -> dict:
+    # Academic Markdown commonly italicizes individual statistical symbols.
+    text = re.sub(r"(?<!\w)(\*{1,2}|_{1,2})([tFrzp])\1(?!\w)", r"\2", text, flags=re.I)
     results = []
     for test, rx in _PATTERNS:
         for m in rx.finditer(text):
@@ -788,7 +792,7 @@ def statcheck_text(text: str, alpha: float = 0.05) -> dict:
     return {
         "checked": len(results), "inconsistent": sum(not r["consistent"] for r in results),
         "decisionErrors": sum(r["decisionError"] for r in results), "results": results,
-        "note": "只检查 APA 格式完整报告（统计量+自由度+p）的条目；双侧检验假设，单侧检验会被标为不一致需人工判断",
+        "note": "只检查 APA 完整报告（统计量+自由度+p；支持 Markdown 斜体及中间 CI）；不推断表格列或缺失自由度，checked=0 表示未匹配而非通过；双侧检验假设，单侧检验等口径需人工判断",
     }
 
 

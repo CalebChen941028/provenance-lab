@@ -195,3 +195,6 @@ name: "科研：<主题短标签>"
 ## 开源说明
 
 本 skill 采用「**可移植 core + harness 适配层**」架构：`core/pipeline.md` 是与具体 agent 平台无关的流水线协议（阶段×角色×关卡×提示词），任何 agent（ZCode/Claude Code/Codex/DeepSeek harness/WorkBuddy…）都能照此执行；本 SKILL.md 与 `~/.zcode/workflows/provenance-lab.dwf.ts` 是 ZCode 适配层（动态工作流加速）。以 Apache-2.0 发布（LICENSE/NOTICE 见仓库）；机制借鉴的开源项目见文首链接与 NOTICE；运行时依赖本机已安装的 google-deepmind/science-skills（Apache-2.0，不在本包内再分发）。
+
+**D39 关卡纪律**：轻微转述/限定语警示也须修正复核，保留文献不等于保留错误表述；无原文支持的实质限定语判 unsupported。设计期效能计算连同脚本/种子/命令/汇总冻结至 `03-sap-code/` 并交付。statcheck 支持 Markdown 斜体与中间 CI，零匹配必须披露，不能判通过；解析未确认条目与未知 PDF 许可证单列，未下载不等于付费墙。
+最近审稿 minor 无关闭复核须披露，图表返工未再次复核不得称验收通过，总交付状态涵盖未通过关卡。

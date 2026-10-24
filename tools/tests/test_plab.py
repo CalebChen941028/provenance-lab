@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import plab  # noqa: E402
@@ -128,6 +129,27 @@ class Schema(unittest.TestCase):
             self.assertNotIn("person1", json.dumps(s, ensure_ascii=False))
 
 
+class OpenAccess(unittest.TestCase):
+    def test_openalex_license_survives_resolution_and_download(self):
+        doi = "10.1234/example"
+        for license_code in ("cc-by", None):
+            with self.subTest(license=license_code), tempfile.TemporaryDirectory() as td:
+                work = {"title": "Example", "doi": doi, "publication_year": 2024,
+                        "open_access": {"is_oa": True},
+                        "best_oa_location": {"pdf_url": "https://example.org/paper.pdf", "license": license_code}}
+                with patch.object(plab, "_openalex", return_value=({doi: work}, True)):
+                    records = plab.resolve_records([{"id": doi}], full=False)
+
+                def download(http, url, dest, md5=""):
+                    with open(dest, "wb") as f:
+                        f.write(b"%PDF-test")
+                    return True, ""
+
+                with patch.object(plab, "resolve_records", return_value=records), patch.object(plab, "_download_pdf", side_effect=download):
+                    result = plab.oa_fetch([doi], td)
+                self.assertEqual(result["downloaded"][0]["license"], license_code or "")
+
+
 class Statcheck(unittest.TestCase):
     def test_p_values_match_scipy(self):
         for test, stat, d1, d2, expected in SCIPY_P:
@@ -158,6 +180,31 @@ class Statcheck(unittest.TestCase):
     def test_rounding_tolerance(self):
         # t(20) = 2.09 → p ≈ .0496; reported p = .05 is a rounding of the admissible range, not an error
         self.assertTrue(plab.statcheck_text("t(20) = 2.09, p = .05")["results"][0]["consistent"])
+
+    def test_markdown_symbols_and_intervening_ci(self):
+        text = (
+            "Pearson *r*(298) = .223，95% CI [.112, .328]，*p* < .001。 "
+            "Wrong **t**(30) = 1.20, 95% CI [-.1, .3], **p** = .03. "
+            "_F_(2, 291) = 0.17, _p_ = .845."
+        )
+        r = plab.statcheck_text(text)
+        self.assertEqual(r["checked"], 3)
+        self.assertEqual(r["inconsistent"], 1)
+        self.assertEqual(r["decisionErrors"], 1)
+
+    def test_never_borrows_p_or_df_from_another_report(self):
+        text = (
+            "*t*(30) = 1.20。另一检验 *p* = .03。\n"
+            "*r*(298) = .223，95% CI [.112, .328]。另一检验 p < .001。\n"
+            "χ² = 4.639, p = .200。β = .132, p = .019。\n"
+            "| *r*(295) = .184 | [.071, .291] | .001 |"
+        )
+        self.assertEqual(plab.statcheck_text(text)["checked"], 0)
+
+    def test_numerical_mismatch_does_not_imply_decision_flip(self):
+        r = plab.statcheck_text("Wald χ²(1) = 3.06, p = .081")
+        self.assertEqual(r["inconsistent"], 1)
+        self.assertEqual(r["decisionErrors"], 0)
 
 
 @unittest.skipUnless(os.environ.get("PLAB_ONLINE") == "1", "set PLAB_ONLINE=1 to query PubMed/Crossref/OpenAlex")

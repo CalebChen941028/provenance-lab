@@ -10,6 +10,9 @@
 //   node ci/mock-run.mjs            # with tools installed (expects network)
 //   node ci/mock-run.mjs --no-tools # tools missing: every gate must fall back, run must finish
 //   node ci/mock-run.mjs --solo     # citation-audit mode on the L1 seeded draft → score_l1.py
+//   node ci/mock-run.mjs --no-stats # zero-match coverage must be disclosed (with real tools)
+//   node ci/mock-run.mjs --no-tools --stale-recheck # out-of-scope re-check IDs cannot pass
+//   PLAB_WORKFLOW=/path/to/old.dwf.ts node ci/mock-run.mjs # compare a previous workflow
 //   add --keep to leave the scratch workspace on disk for inspection
 import fs from "node:fs";
 import os from "node:os";
@@ -19,10 +22,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const WF = path.join(ROOT, "adapters/zcode/workflows/provenance-lab.dwf.ts");
+const WF = process.env.PLAB_WORKFLOW || path.join(ROOT, "adapters/zcode/workflows/provenance-lab.dwf.ts");
 const withTools = !process.argv.includes("--no-tools");
 // --solo: standalone citation-audit mode on the L1 seeded draft, scored by evaluation/score_l1.py
 const solo = process.argv.includes("--solo");
+// Exercises coverage reporting with real tools but no complete statistical report.
+const noStats = process.argv.includes("--no-stats");
+// Run with --no-tools to exercise an auditor repeating an out-of-scope old failure.
+const staleRecheck = process.argv.includes("--stale-recheck");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plab-mock-"));
 const home = path.join(tmp, "home");
@@ -48,20 +55,23 @@ const GOOD = [
   { id: "PMID:34299887", title: "Reciprocal Relationships between Sleep Problems and Problematic Smartphone Use in Taiwan: Cross-Lagged Panel Study", year: 2021, design: "两波交叉滞后", finding: "睡眠问题与 PSU 双向互预测" },
   { id: "PMID:35149136", title: "An updated of meta-analysis on the relationship between mobile phone addiction and sleep disorder", year: 2022, design: "meta 分析", finding: "汇总 r = 0.30" },
   { id: "DOI:10.1001/jamapediatrics.2016.2341", title: "Association Between Portable Screen-Based Media Device Access or Use and Sleep Outcomes", year: 2016, design: "meta 分析", finding: "睡前设备使用与睡眠不足相关" },
+  { id: "arXiv:1907.10569", title: "Sample size calculations in simple linear regression", year: 2019, design: "方法学", finding: "非 PMID/DOI 的解析覆盖缺口必须披露" },
 ];
 const RETRACTED = { id: "PMID:9500320", title: "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children", year: 1998, design: "病例系列", finding: "（已撤稿）" };
 const FABRICATED = { id: "PMID:99999999", title: "Smartphone screen exposure and adolescent sleep: a 10-year birth cohort", year: 2031, design: "队列", finding: "编造" };
 const DUP_BY_TITLE = { id: "DOI:10.3390/ijerph18147438", title: "Reciprocal relationships between sleep problems and problematic smartphone use in Taiwan: cross-lagged panel study.", year: 2021, design: "两波交叉滞后", finding: "同一文献的 DOI 记录" };
 
-const draftV1 = `# 初稿\n\n## 结果\n\n主分析 t(298) = 3.53, p < .001。亚组分析 t(30) = 1.20, p = .03。\n\n## References\n\n1. Chen JK, Wu WC. Reciprocal relationships... Int J Environ Res Public Health. 2021. PMID: 34299887\n2. Zhang J, et al. An updated of meta-analysis... J Affect Disord. 2022. PMID: 35149136\n3. Carter B, et al. Association between portable screen-based media device access... JAMA Pediatr. 2016. PMID: 27802500\n4. Benjamini Y, Hochberg Y. Controlling the false discovery rate. J R Stat Soc B. 1995. doi:10.1111/j.2517-6161.1995.tb02031.x\n5. Obokata H, et al. Stimulus-triggered fate conversion. Nature. 2014. doi:10.1038/nature12968\n6. Wakefield AJ, et al. Ileal-lymphoid-nodular hyperplasia. Lancet. 1998. PMID: 9500320\n7. Cohen J. Statistical power analysis for the behavioral sciences. 2nd ed. 1988.\n`;
+const draftV1 = `# 初稿\n\n## 结果\n\n${noStats ? "只报告 B = .13，无自由度与检验统计量。" : "主分析 *r*(298) = .223，95% CI [.112, .328]，*p* < .001。亚组分析 *t*(30) = 1.20, *p* = .03。"}\n\n## References\n\n1. Chen JK, Wu WC. Reciprocal relationships... Int J Environ Res Public Health. 2021. PMID: 34299887\n2. Zhang J, et al. An updated of meta-analysis... J Affect Disord. 2022. PMID: 35149136\n3. Carter B, et al. Association between portable screen-based media device access... JAMA Pediatr. 2016. PMID: 27802500\n4. Benjamini Y, Hochberg Y. Controlling the false discovery rate. J R Stat Soc B. 1995. doi:10.1111/j.2517-6161.1995.tb02031.x\n5. Obokata H, et al. Stimulus-triggered fate conversion. Nature. 2014. doi:10.1038/nature12968\n6. Wakefield AJ, et al. Ileal-lymphoid-nodular hyperplasia. Lancet. 1998. PMID: 9500320\n7. Cohen J. Statistical power analysis for the behavioral sciences. 2nd ed. 1988.\n`;
 const draftV2 = draftV1
-  .replace("t(30) = 1.20, p = .03", "t(30) = 1.20, p = .24")
+  .replace("*t*(30) = 1.20, *p* = .03", "*t*(30) = 1.20, *p* = .24")
   .replace(/5\. Obokata[^\n]*\n6\. Wakefield[^\n]*\n7\./, "5.");
 
 const calls = [];
 const stages = {};
 const logs = [];
 let writerDraftPrompt = "";
+let wordingFixed = false;
+let qualifierFixed = false;
 
 function respond(name, prompt, opts) {
   calls.push({ name, prompt, system: opts.system ?? "" });
@@ -81,6 +91,12 @@ function respond(name, prompt, opts) {
     case "Synth": {
       // stubborn synthesizer: never removes anything, so only the code backstop can
       const included = [...GOOD, RETRACTED, FABRICATED].map((p) => ({ ...p, status: "clean" }));
+      if (prompt.includes("先修正再复核")) {
+        wordingFixed ||= prompt.includes("汇总 r 写错");
+        qualifierFixed ||= prompt.includes("限定语在摘要中不可考");
+      }
+      if (wordingFixed) included[1].finding = "已按摘要更正汇总 r";
+      if (qualifierFixed) included[2].finding = "已删除无原文支持的限定语";
       // on the excision request it also rewrites identifier spelling — the backstop must still match
       if (prompt.includes("按协议从证据表剔除")) for (const p of included) p.id = p.id.replace("PMID:", "PMID: ");
       w(`${OUT}/02-evidence-table.md`, "# 证据表\n" + included.map((p) => `- ${p.id} ${p.title}`).join("\n"));
@@ -90,8 +106,15 @@ function respond(name, prompt, opts) {
       // round 1: the semantic checker misses both bad identifiers — the deterministic layer must not.
       // round 2: it first flags a wording problem on a legitimate paper (what happened in L-A D37);
       // that entry must be corrected and re-checked, not excised. The targeted re-check passes.
-      if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 8, failures: ["PMID:35149136：finding 与摘要不符（汇总 r 写错），建议改写后保留"], failedIds: ["PMID:35149136"] };
-      return { passed: true, checked: 8, failures: [], failedIds: [] };
+      if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 8, failures: ["PMID:35149136：finding 与摘要不符（汇总 r 写错），建议改写后保留；另参照已正确的 PMID:34299887，后者无需修改", "【限定语警示-不建议剔除】`10.1001/jamapediatrics.2016.2341`：限定语在摘要中不可考，须删除限定语后保留条目", "有一条意见缺少条目标识符，需要人工绑定"], failedIds: ["PMID:35149136"] };
+      if (prompt.includes("已按上轮核查意见修正")) {
+        if (staleRecheck) return { passed: false, checked: 2, failures: [`${GOOD[0].id}：复述上一轮旧问题，不属于本批`], failedIds: [GOOD[0].id] };
+        const failedIds = [];
+        if (!prompt.includes("已按摘要更正汇总 r")) failedIds.push(GOOD[1].id);
+        if (!prompt.includes("已删除无原文支持的限定语")) failedIds.push(GOOD[2].id);
+        return { passed: failedIds.length === 0, checked: 2, failures: failedIds.map((id) => `${id}：仍未修正`), failedIds };
+      }
+      return staleRecheck ? { passed: false, checked: 8, failures: [`${GOOD[0].id}：首轮待更正问题`], failedIds: [GOOD[0].id] } : { passed: true, checked: 8, failures: [], failedIds: [] };
     case "Stats":
       w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
       return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: `${OUT}/03-sap.md` };
@@ -101,11 +124,11 @@ function respond(name, prompt, opts) {
       return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: `${OUT}/04-analysis`, keyFindings: ["r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
     case "StatRev":
     case "Reviewer":
-      return { majorIssues: [], minorIssues: [], verdict: "accept", persistingFromLastRound: 0 };
+      return { majorIssues: [], minorIssues: [`${role}: 补充一项口径说明，尚未复核关闭`], verdict: "minor-revision", persistingFromLastRound: 0 };
     case "ArtDir":
       return { polishedDir: `${OUT}/04-analysis/figures-polished`, auditPath: `${OUT}/09-figure-audit.md`, figures: [] };
     case "VisualQA":
-      return { passed: true, issues: [] };
+      return { passed: false, issues: ["图中文字过小，需整改；最终版尚未复核"] };
     case "Writer": {
       if (prompt.includes("答辩拷问问题清单")) {
         w(`${OUT}/07-rebuttal.md`, "# 回应信\n");
@@ -210,6 +233,10 @@ check(result.metrics.deterministic.candidates.raw > result.metrics.deterministic
 check(fs.existsSync(outFile("05a-citation-audit.json")), "structured 05a JSON written");
 check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
 check(stages["分析执行"] === "passed" && !fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "analysis stage passes once the script uses relative paths");
+check(result.metrics.statsReview.pendingMinorNotes === 1 && result.metrics.peerReview.pendingMinorNotes === 1 && result.findings.filter((f) => f.what.includes("minor")).length === 2, "minor review notes are retained until their closure is verified");
+check(result.notCovered.some((s) => s.includes("图表视觉验收未通过")) && !result.verified.some((s) => s.includes("图表按")), "unverified figure revisions are never claimed as visually accepted");
+check(stages["终检交付"] === "issues", "delivery cannot pass while review or visual issues remain");
+check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes("待关闭审稿意见") && c.prompt.includes('"figuresVerified":false'))), "audit-package and summary writers receive the same unresolved caveats");
 
 if (withTools) {
   const net = JSON.parse(fs.readFileSync(outFile("tool-records/resolve-evidence.json"), "utf8")).records;
@@ -218,7 +245,9 @@ if (withTools) {
   if (online) {
     const gate = result.metrics.citationGate;
     check(stages["引文核查"] === "issues" && gate.excluded === 2, `citation gate excludes retracted + fabricated even though the checker passed them (excluded ${gate.excluded})`);
-    check(gate.corrected === 1 && calls.some((c) => c.name.startsWith("CiteGate") && c.prompt.includes("已按上轮核查意见修正")), "a wording problem first found in round 2 is corrected and re-checked, not excised");
+    check(gate.corrected === 2 && wordingFixed && qualifierFixed, "round-2 qualifier in backticks is corrected without misclassifying a mentioned comparator");
+    check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
+    check(result.metrics.deterministic.evidenceResolved.unresolved === 1 && result.notCovered.some((s) => s.includes("arXiv:1907.10569") && s.includes("不能计为确定性核验通过")), "unresolved identifiers are not counted as deterministic verification");
     check(!writerDraftPrompt.includes("PMID:35149136") || !/禁止引用：[^\n]*35149136/.test(writerDraftPrompt), "the corrected paper stays citable");
     const writerSaw = writerDraftPrompt;
     check(writerSaw.includes("PMID:9500320") && writerSaw.includes("PMID:99999999") && writerSaw.includes("禁止引用"), "writer is told the excluded ids are off-limits");
@@ -229,8 +258,9 @@ if (withTools) {
     check(!wl1.outside.some((r) => r.label === "3"), "PMID cited for a DOI-listed paper is matched via PMID↔DOI mapping");
     check(wl1.unidentified.length === 1, "reference without identifiers counted as unidentified");
     const sc1 = JSON.parse(fs.readFileSync(outFile("tool-records/statcheck.json"), "utf8"));
-    check(sc1.inconsistent === 1 && sc1.decisionErrors === 1, "statcheck flags t(30) = 1.20, p = .03 as a decision error");
-    check(stages["引文终检"] === "passed", "final check passes after the writer's fix");
+    check(noStats ? sc1.checked === 0 : sc1.checked === 2 && sc1.inconsistent === 1 && sc1.decisionErrors === 1, "statcheck handles Markdown/CI reports without inventing missing statistics");
+    check(stages["引文终检"] === (noStats ? "issues" : "passed"), "zero statistical coverage cannot pass the final check");
+    check(result.notCovered.some((s) => s.includes("checked=0")) === noStats, "zero-match coverage is disclosed separately from statistical consistency");
     check(result.metrics.deterministic.whitelist.outside === 0 && result.metrics.deterministic.statcheck.inconsistent === 0, "metrics record the clean second pass");
     check(result.notCovered.some((s) => s.includes("无 PMID/DOI")), "unidentified references disclosed in notCovered");
     const lib = calls.find((c) => c.name.startsWith("Librarian"));
@@ -239,7 +269,8 @@ if (withTools) {
   }
 } else {
   check(result.notCovered.some((s) => s.includes("确定性引文终检未能运行")), "missing tools are disclosed in notCovered");
-  check(stages["引文核查"] === "passed", "without tools the gate falls back to the checker's verdict");
+  check(stages["引文核查"] === (staleRecheck ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
+  if (staleRecheck) check(result.metrics.citationGate.corrected === 0 && result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("范围外失败条目")), "out-of-scope re-check failures cannot count as corrected entries");
   const lib = calls.find((c) => c.name.startsWith("Librarian"));
   check(!lib.system.includes("下载已由确定性工具完成"), "librarian falls back to downloading itself");
   check(result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.toolFailures === result.metrics.deterministic.toolRuns, "every tool call failed soft");

@@ -20,3 +20,6 @@ description: >-
 5. **产物**：全部写入 `provenance-lab-output/`（有数据集时放数据集文件夹下），最终按 pipeline.md §8 交付五件套 + 审计包并输出结论/发现/已验证/未覆盖四段式报告。
 6. **确定性工具层**（pipeline.md §0 规则 12）：本 skill 目录下的 `tools/plab.py`（安装时已复制，仅需 python3）用 Bash 调用——S2 关卡前 `resolve --file <纳入文献 JSON>` 逐条解析标识符与撤稿状态；S4 第一步 `schema <数据文件>`；S7.6 `oa-fetch --draft 06-draft.md --dir provenance-lab-output/papers`；S8 `whitelist 06-draft.md --allowed <证据表 id> --allowed-from 03-sap.md` 与 `statcheck 06-draft.md`。工具结论优先于子 agent 自报；工具结果 JSON 存到 `provenance-lab-output/tool-records/` 供审计；工具不可用时回落到 agent 核查并写进未覆盖清单。
 7. **诚实红线**：查不到、答不出就进"未覆盖"清单；绝不编造文献与数据；绝不绕过付费墙或爬取 Google Scholar。
+
+**D39 关卡纪律**：轻微转述/限定语警示也须修正复核，保留文献不等于保留错误表述；无原文支持的实质限定语判 unsupported。设计期效能计算连同脚本/种子/命令/汇总冻结至 `03-sap-code/` 并交付。statcheck 支持 Markdown 斜体与中间 CI，零匹配必须披露，不能判通过；解析未确认条目与未知 PDF 许可证单列，未下载不等于付费墙。
+最近审稿 minor 无关闭复核须披露，图表返工未再次复核不得称验收通过，总交付状态涵盖未通过关卡。
