@@ -5,7 +5,7 @@
   "description": "Type-check and mock-run the ZCode workflow",
   "scripts": {
     "typecheck": "node typecheck.mjs",
-    "mock": "node mock-run.mjs && node mock-run.mjs --no-tools"
+    "mock": "node mock-run.mjs && node mock-run.mjs --no-tools && node mock-run.mjs --solo"
   },
   "devDependencies": {
     "typescript": "5.6.3"

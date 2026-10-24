@@ -1,7 +1,7 @@
 /* zcode-workflow
 description: ProvenanceLab 溯源科研流水线（国际化
   UI）：角色名双语英文优先（PI·选题主席等）、看板与阶段名英文（Question/Search/Evidence/SAP/Draft…）、语言自动建议期刊主语言优先。含
-  v1-v4 优化、D16-D32 全部。
+  v1-v4 优化、D16-D36 全部（含确定性工具层与 S8 引文终检）。
 args:
   checkpoints:
     type: string

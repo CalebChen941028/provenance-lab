@@ -48,19 +48,20 @@ core/pipeline.md（平台无关协议：阶段×角色×关卡×提示词）
 ```bash
 git clone https://github.com/CalebChen941028/provenance-lab.git
 cd provenance-lab
-bash install.sh     # 自动探测 ZCode / Claude Code / Codex 并安装对应适配层
+bash install.sh     # 自动探测 ZCode / Claude Code / Codex / opencode 并安装对应适配层
 ```
 
 | Harness | 安装内容 | 用法 |
 |---|---|---|
-| ZCode | skill + 动态工作流（多 agent 并行、看板、混合编队） | `/provenance-lab <研究方向>` |
-| Claude Code | SKILL.md + 协议副本（Task 子 agent 扮演各角色） | `/provenance-lab <研究方向>` |
-| Codex CLI | `/provenance-lab` 自定义提示 + 协议副本 | `/provenance-lab <研究方向>` |
-| DeepSeek harness / WorkBuddy 等 | 把 `core/pipeline.md` 全文放入系统提示/规则文件 | 对 agent 说"按 research-team 协议执行：<研究方向>" |
+| ZCode | skill + 动态工作流（多 agent 并行、看板、混合编队）+ 确定性工具层 | `/provenance-lab <研究方向>` |
+| Claude Code | SKILL.md（+ 英文速览）+ 中英协议副本 + 确定性工具层（Agent 工具派子 agent 扮演各角色） | `/provenance-lab <研究方向>` |
+| Codex CLI | `/provenance-lab` 自定义提示；协议与确定性工具层装在 `~/.codex/provenance-lab/` | `/provenance-lab <研究方向>` |
+| opencode | 协议、注入器与确定性工具层装到 `~/.config/opencode/provenance-lab/`，把注入器内容追加进 AGENTS.md | 对 agent 说"按 ProvenanceLab 协议执行：<研究方向>" |
+| DeepSeek harness / WorkBuddy 等 | 把 `adapters/universal/system-prompt.zh.md` 与 `core/pipeline.md` 放入系统提示/规则文件（可附 `tools/plab.py`） | 对 agent 说"按 ProvenanceLab 协议执行：<研究方向>" |
 
 **伴生技能 [natural-voice](adapters/zcode/skills/natural-voice/SKILL.md)**：中英双语去AI腔语态引擎（学术论文/课题申报/科普/社媒/商务），ProvenanceLab 的初稿、回应信与总结均按其规范撰写；也可单独使用（把任意文案丢给 agent 说"按 natural-voice 重塑"）。
 
-可选增强：[google-deepmind/science-skills](https://github.com/google-deepmind/science-skills)（提升文献检索质量，未安装时自动降级为直接 API 调用）、[uv](https://docs.astral.sh/uv/)（Python 依赖管理）。
+可选增强：[google-deepmind/science-skills](https://github.com/google-deepmind/science-skills)（提升文献检索质量，未安装时自动降级为直接 API 调用）、[uv](https://docs.astral.sh/uv/)（Python 依赖管理）。确定性工具层只需系统自带的 `python3`，无需安装任何包；设置环境变量 `PLAB_MAILTO` 可加入 OpenAlex/Crossref 礼貌访问池并启用 Retraction Watch 查询（不设则不发送任何邮箱）。
 
 ## 使用
 

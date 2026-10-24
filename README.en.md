@@ -55,17 +55,18 @@ Citation selection ranks by **relevance, evidence level, and methodological qual
 ```bash
 git clone https://github.com/CalebChen941028/provenance-lab.git
 cd provenance-lab
-bash install.sh     # auto-detects ZCode / Claude Code / Codex
+bash install.sh     # auto-detects ZCode / Claude Code / Codex / opencode
 ```
 
 | Harness | Installed | Usage |
 |---|---|---|
-| ZCode | skill + dynamic workflow (parallel agents, board, hybrid model tiers) | `/provenance-lab <topic>` |
-| Claude Code | SKILL.md + protocol copy (Task subagents as roles) | `/provenance-lab <topic>` |
-| Codex CLI | `/provenance-lab` prompt + protocol copy | `/provenance-lab <topic>` |
-| DeepSeek harness / WorkBuddy / others | Put `core/pipeline.md` into your system prompt | "Follow the ProvenanceLab protocol: <topic>" |
+| ZCode | skill + dynamic workflow (parallel agents, board, hybrid model tiers) + deterministic tool layer | `/provenance-lab <topic>` |
+| Claude Code | SKILL.md (+ English guide) + zh/en protocol copies + deterministic tool layer (Agent-tool subagents as roles) | `/provenance-lab <topic>` |
+| Codex CLI | `/provenance-lab` prompt; protocol and tool layer in `~/.codex/provenance-lab/` | `/provenance-lab <topic>` |
+| opencode | protocol, injector and tool layer in `~/.config/opencode/provenance-lab/`; append the injector to AGENTS.md | "Follow the ProvenanceLab protocol: <topic>" |
+| DeepSeek harness / WorkBuddy / others | Put `adapters/universal/system-prompt.en.md` and `core/pipeline.en.md` into your system prompt (optionally attach `tools/plab.py`) | "Follow the ProvenanceLab protocol: <topic>" |
 
-Optional: [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills) (richer scripted search; falls back to direct official APIs when absent — see Appendix A of the protocol for endpoints), [uv](https://docs.astral.sh/uv/) (Python deps).
+Optional: [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills) (richer scripted search; falls back to direct official APIs when absent — see Appendix A of the protocol for endpoints), [uv](https://docs.astral.sh/uv/) (Python deps). The deterministic tool layer needs only the system `python3`, no packages; set `PLAB_MAILTO` to join the OpenAlex/Crossref polite pools and enable Retraction Watch lookups (no address is sent otherwise).
 
 ## Usage
 

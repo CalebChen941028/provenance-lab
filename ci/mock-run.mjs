@@ -9,6 +9,7 @@
 //
 //   node ci/mock-run.mjs            # with tools installed (expects network)
 //   node ci/mock-run.mjs --no-tools # tools missing: every gate must fall back, run must finish
+//   node ci/mock-run.mjs --solo     # citation-audit mode on the L1 seeded draft → score_l1.py
 //   add --keep to leave the scratch workspace on disk for inspection
 import fs from "node:fs";
 import os from "node:os";
@@ -20,6 +21,8 @@ import ts from "typescript";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WF = path.join(ROOT, "adapters/zcode/workflows/provenance-lab.dwf.ts");
 const withTools = !process.argv.includes("--no-tools");
+// --solo: standalone citation-audit mode on the L1 seeded draft, scored by evaluation/score_l1.py
+const solo = process.argv.includes("--solo");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plab-mock-"));
 const home = path.join(tmp, "home");
@@ -130,13 +133,23 @@ function respond(name, prompt, opts) {
       return { manifestPath: `${OUT}/00-README.md`, auditPath: `${OUT}/05-audit-trail.md`, mermaid: "" };
     case "Scribe":
       return "# 总结";
+    case "Solo": {
+      // a perfect auditor: one entry per seeded case carrying the expected verdict
+      const cases = JSON.parse(fs.readFileSync(path.join(ROOT, "evaluation/citation-error-cases/expected.json"), "utf8")).cases;
+      const base = { isPrimary: "primary", accuracy: "supported", necessity: "necessary", retractionStatus: "clean" };
+      const entries = cases.map((c) => ({ ...base, ...c.expected, citation: `[${c.id}] 讨论段`, resolvedSource: "-", textLevel: "abstract", sourceLocation: "-", note: "-" }));
+      w(`${OUT}/05a-citation-audit.md`, "# 05a\n");
+      return { entries, problems: entries.filter((e) => e.isPrimary !== "primary" || e.accuracy !== "supported" || e.necessity !== "necessary" || ["retracted", "concern"].includes(e.retractionStatus)).length, auditPath: `${OUT}/05a-citation-audit.md` };
+    }
     default:
       throw new Error(`mock has no script for agent ${name}`);
   }
 }
 
 const runtime = {
-  args: { topic: "PSU 与青少年睡眠质量（模拟）", integrityMode: "development", teamProfile: "hybrid", figurePolish: "true", language: "中文" },
+  args: solo
+    ? { topic: "L1 植错集", mode: "citation-audit", draftPath: path.join(ROOT, "evaluation/citation-error-cases/seeded-draft.md") }
+    : { topic: "PSU 与青少年睡眠质量（模拟）", integrityMode: "development", teamProfile: "hybrid", figurePolish: "true", language: "中文" },
   agent: (name, opts) => ({ ask: async (prompt) => respond(name, prompt, opts) }),
   model: (id) => ({ __model: id }),
   log: (s) => logs.push(s),
@@ -168,6 +181,19 @@ const check = (ok, what) => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${what}`);
 };
 const outFile = (rel) => path.join(ws, OUT, rel);
+if (solo) {
+  const audit = outFile("05a-citation-audit.json");
+  check(fs.existsSync(audit), "solo citation-audit writes 05a-citation-audit.json");
+  const det = JSON.parse(fs.readFileSync(audit, "utf8")).deterministic;
+  check(Array.isArray(det) && det.length >= 8, "deterministic records for the seeded references are embedded");
+  const sc = spawnSync("python3", [path.join(ROOT, "evaluation/score_l1.py"), audit], { encoding: "utf8" });
+  check(sc.status === 0 && sc.stdout.includes("敏感度 9/9") && sc.stdout.includes("特异度 2/2"), "score_l1.py scores a perfect auditor 9/9 and 2/2");
+  check(!sc.stdout.includes("❌"), `deterministic layer gets S1-S4 and S10 right${sc.stdout.includes("❌") ? `\n${sc.stdout}` : ""}`);
+  const keepSolo = process.argv.includes("--keep");
+  console.log(`\n${failures.length === 0 ? "ALL PASS" : `${failures.length} FAILED`} (solo citation-audit${keepSolo ? `; workspace kept at ${ws}` : ""})`);
+  if (!keepSolo) fs.rmSync(tmp, { recursive: true, force: true });
+  process.exit(failures.length === 0 ? 0 : 1);
+}
 const metricsFile = outFile("99-metrics.json");
 check(fs.existsSync(metricsFile), "99-metrics.json written by code");
 if (fs.existsSync(metricsFile)) check(JSON.stringify(JSON.parse(fs.readFileSync(metricsFile, "utf8"))) === JSON.stringify(result.metrics), "99-metrics.json equals returned metrics");
