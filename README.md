@@ -34,11 +34,12 @@ core/pipeline.md（平台无关协议：阶段×角色×关卡×提示词）
 
 | 风险 | 对策 |
 |---|---|
-| 编造文献 | 引文白名单：初稿只准引用经逐条落地核查（PMID/DOI）的证据表文献或本研究自身结果 |
+| 编造文献 | 引文白名单：初稿只准引用经逐条落地核查（PMID/DOI）的证据表文献或本研究自身结果；标识符存在性与撤稿/更正状态由代码逐条解析，交付前代码终检"初稿引用 ⊆ 白名单"（`tools/plab.py`） |
 | p-hacking | 预注册式 SAP：统计方法学家在看到任何结果**之前**定死分析计划 |
 | 统计不规范 | 统计审稿：假设检验、多重比较校正、效应量+95% CI、与 SAP 一致性 |
+| 统计报告与数值不符 | 代码从 APA 格式报告（t/F/χ²/r/z + 自由度）复算 p 值，标记不一致与显著性判定翻转（statcheck 思路，独立实现） |
 | 结论夸大 | 对抗挑战员 + 答辩拷问官（6/8/10 个"答不好就拒稿"级问题，答不出就诚实列为待补） |
-| 修不动就摆烂 | 停滞检测：连续两轮同样意见 → 根因诊断员换思路 |
+| 修不动就摆烂 | 停滞检测：审稿人报告上轮问题仍未解决的条数，全部遗留 → 根因诊断员换思路 |
 | 不可复现 | 固定随机种子 + 一键重跑 + 可选确定性验收命令 |
 | 报喜不报忧 | 最终报告强制"未覆盖/待补"清单 |
 
@@ -76,17 +77,22 @@ bash install.sh     # 自动探测 ZCode / Claude Code / Codex 并安装对应�
 ## 仓库结构
 
 ```
-├── LICENSE                        # Apache-2.0
-├── NOTICE.md                      # 归属、版权边界、免责声明
-├── install.sh                     # 多 harness 自动安装
-├── core/pipeline.md               # ★ 平台无关协议（唯一权威来源）
-└── adapters/
-    ├── zcode/                     # SKILL.md + provenance-lab.dwf.ts
-    ├── claude-code/               # SKILL.md
-    └── codex/                     # provenance-lab.md
+├── LICENSE / NOTICE.md            # Apache-2.0；归属、版权边界、免责声明
+├── install.sh                     # 多 harness 自动安装（含确定性工具层）
+├── core/pipeline.md · .en.md      # ★ 平台无关协议（中文权威版 + 英文等价版）
+├── tools/plab.py                  # 确定性工具层（仅标准库）：标识符/撤稿解析、白名单终检、p 值复算、合法 OA 下载、schema
+├── adapters/
+│   ├── zcode/                     # SKILL.md + provenance-lab.dwf.ts（动态工作流）
+│   ├── claude-code/               # SKILL.md（+ 英文速览）
+│   ├── codex/                     # /provenance-lab 提示
+│   └── universal/                 # DeepSeek harness / WorkBuddy / opencode 等通用注入
+├── evaluation/                    # 评测协议、L1 植错集、评分与逐角色 token 画像脚本、结果汇总
+├── ci/                            # 工作流类型检查、对抗式模拟运行、全域同步检查
+├── examples/                      # 全流程示例产物
+└── docs/development-log.md        # 设计与决策日志（D0 起）
 ```
 
-为新 harness 贡献适配层：在 `adapters/<name>/` 放一个薄入口（引用 core/pipeline.md，翻译成该平台的 skill/提示词格式），勿复制协议正文——core 是单一来源。
+为新 harness 贡献适配层：在 `adapters/<name>/` 放一个薄入口（引用 core/pipeline.md，翻译成该平台的 skill/提示词格式）。适配层里的协议副本由 `python3 ci/check_sync.py` 保证与 core 逐字节一致，core 是单一来源。
 
 ## 配额韧性与自动恢复
 
@@ -108,8 +114,9 @@ bash install.sh     # 自动探测 ZCode / Claude Code / Codex 并安装对应�
 
 口号要求 every claim stands scrutiny，评测体系自身也一样：
 
-- **L0 遥测**：每次运行自动落盘 `99-metrics.json`（关卡通过率/退回轮数/深审统计），跨运行成基线，优化合入以指标不恶化为条件
-- **L1 植错测试集**：`evaluation/` 提供 11 例引用（9 例植错：编造/撤稿/夸大/张冠李戴/二手充一手/错位；1 例更正状态文献；1 例干净对照），标识符与状态均经 PubMed/Crossref/OpenAlex 核验，附期望判定——一条命令测引文深审的敏感度/特异度；协议见 [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+- **L0 遥测**：每次运行由代码落盘 `99-metrics.json`（关卡通过率/退回轮数/深审统计/确定性工具层结果），跨运行成基线，优化合入以指标不恶化为条件；`evaluation/run_profile.py` 生成逐角色 token 对照
+- **L1 植错测试集**：`evaluation/` 提供 11 例引用（9 例植错：编造/撤稿/夸大/张冠李戴/二手充一手/错位；1 例更正状态文献；1 例干净对照），标识符与状态均经 PubMed/Crossref/OpenAlex 核验，附期望判定——`evaluation/score_l1.py` 确定性计分（敏感度/特异度，多次运行报均值与范围）；协议见 [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+- **离线预检与 CI**：工具层单元测试、工作流类型检查、对抗式模拟运行（脚本化 agent + 真实工具：核查员漏判、检索源崩溃、白名单外引用、p 值不自洽都须被代码关卡拦下；工具缺失时须优雅回落）、全域同步检查——每次推送由 GitHub Actions 运行，零 token
 
 ## 路线图
 

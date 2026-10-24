@@ -10,10 +10,10 @@
 
 **ProvenanceLab** — verifiable research pipeline (clinical medicine / epidemiology / psychology / related health sciences): question (PICO/FINER) → multi-database search → PRISMA synthesis with retraction audit → pre-registered SAP (variable dictionary + overfitting controls) → analysis (code-to-data, chunked compute) → statistical review → Nature/Cell-standard figures → IMRaD draft (citation whitelist, AI + ethics disclosures) → simulated peer review → defense grilling → five-dimension citation audit → OA archiving → human-audit package. Slogan: **For truth, not glory. Machines take the toil — every claim stands scrutiny.**
 
-**Full English protocol**: [`core/pipeline.en.md`](../../../core/pipeline.en.md) — harness-agnostic, authoritative for international use.
+**Full English protocol**: `pipeline.en.md` in this skill directory once installed ([`core/pipeline.en.md`](../../../core/pipeline.en.md) in the repo) — harness-agnostic, authoritative for international use.
 
 **Quick start** (English): say "Follow the ProvenanceLab protocol: <your topic>" — the agent runs the grill interview, then configuration, then the pipeline; deliverables land in `provenance-lab-output/` next to your dataset.
 
 **Standalone services** (no full run): figure-polish · citation-audit · review · cross-validate (independent verification of analyses made elsewhere) · audit-pack.
 
-**Key guarantees**: citation whitelist; retraction-status hard gate; pre-registration-style SAP; participatory checkpoints (variable-dictionary confirmation before analysis when a real dataset is provided); glass-box plain-language layer; L0 telemetry (`99-metrics.json`); tool-positioning disclaimer — outputs are research assistance requiring human verification, never clinical advice.
+**Key guarantees**: citation whitelist; retraction-status hard gate; pre-registration-style SAP; participatory checkpoints (variable-dictionary confirmation before analysis when a real dataset is provided); glass-box plain-language layer; deterministic tool layer (`tools/plab.py`: identifier and retraction resolution, whitelist final check, p-value recomputation, legal OA download — tool results override agent self-reports, with graceful fallback); L0 telemetry (`99-metrics.json`); tool-positioning disclaimer — outputs are research assistance requiring human verification, never clinical advice.

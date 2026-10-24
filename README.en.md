@@ -37,13 +37,14 @@ The biggest risk of multi-agent research automation is not failure to produce �
 
 | Risk | Countermeasure |
 |---|---|
-| Fabricated literature | Citation whitelist: drafts may only cite entries verified record-by-record (PMID/DOI) or this study's own results |
+| Fabricated literature | Citation whitelist: drafts may only cite entries verified record-by-record (PMID/DOI) or this study's own results; identifier existence and retraction/correction status are resolved by code, and a code-level final check enforces "cited ⊆ whitelist" before delivery (`tools/plab.py`) |
 | Citing retracted / flagged papers | Hard gate, always on: three-source retraction audit (OpenAlex `is_retracted`, PubMed publication types, Crossref Retraction Watch); retracted/expressions-of-concern are never cited as evidence |
 | p-hacking | Pre-registration-style SAP: the statistician locks the analysis plan **before seeing any result** |
 | Sloppy statistics | Statistical reviewer checks assumptions, multiple-comparison corrections, effect sizes + 95% CIs, SAP consistency |
+| Statistics that do not match their numbers | Code recomputes p from APA-style reports (t/F/χ²/r/z + df) and flags inconsistencies and flipped significance decisions (statcheck idea, independent implementation) |
 | Overclaiming | Adversarial challenger + defense examiner (6/8/10 "reject-level" questions; honest "cannot answer" is recorded, not hidden) |
 | Secondhand citations posing as primary | Primary-source tracing: claims sourced from an original study cited via a review are traced back and replaced |
-| Stuck revision loops | Stall detection: two identical rounds trigger a root-cause diagnostician (Magentic-One style) |
+| Stuck revision loops | Stall detection: reviewers report how many prior major issues persist; when all persist, a root-cause diagnostician steps in (Magentic-One style) |
 | Irreproducible analysis | Fixed random seeds, one-command rerun, optional deterministic gate |
 | Overstated polish | Final report must carry a "not covered / to-verify" list; tool-positioning disclaimer ships with every deliverable |
 
@@ -76,6 +77,22 @@ Optional: [google-deepmind/science-skills](https://github.com/google-deepmind/sc
 
 **Standalone modes** (no full run needed): `figure-polish` · `citation-audit` (existing draft) · `review` (peer-review simulation) · `cross-validate` (independent verification of analysis produced elsewhere: re-run their scripts + recompute key statistics + statistical review) · `audit-pack`.
 
+## Repository layout
+
+```
+├── LICENSE / NOTICE.md            # Apache-2.0; attribution, copyright boundaries, disclaimers
+├── install.sh                     # multi-harness installer (includes the deterministic tool layer)
+├── core/pipeline.md · .en.md      # ★ harness-agnostic protocol (Chinese authoritative + English equivalent)
+├── tools/plab.py                  # deterministic layer (stdlib only): identifier/retraction resolution, whitelist check, p recomputation, legal OA download, schema
+├── adapters/                      # zcode (skill + dynamic workflow) · claude-code · codex · universal
+├── evaluation/                    # protocol, L1 seeded set, scoring and per-role token profiling, result summaries
+├── ci/                            # workflow type-check, adversarial mock run, cross-carrier sync check
+├── examples/                      # full-run example outputs
+└── docs/development-log.md        # design & decision log (from D0)
+```
+
+Adapter copies of the protocol are kept byte-identical to `core/` by `python3 ci/check_sync.py`; core is the single source.
+
 ## Quota resilience & auto-resume
 
 Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pipelines. ProvenanceLab's answer:
@@ -97,8 +114,9 @@ Subscription-plan model quotas (e.g., 5-hour window caps) can interrupt long pip
 
 The slogan demands every claim stands scrutiny — the evaluation system itself included:
 
-- **L0 telemetry**: every run writes `99-metrics.json` (gate pass rates, revision rounds, audit stats) for cross-run baselines; optimizations must not degrade the metrics
-- **L1 seeded-error suite**: `evaluation/` ships 11 citations (9 seeded errors: fabricated / retracted / overstated / misattributed / secondhand / wrong-context; 1 corrected publication; 1 clean control), every identifier and status verified against PubMed/Crossref/OpenAlex, with expected verdicts — measure the citation-audit gate's sensitivity/specificity with one run; protocol in [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+- **L0 telemetry**: code writes `99-metrics.json` on every run (gate pass rates, revision rounds, audit stats, deterministic-layer results) for cross-run baselines; optimizations must not degrade the metrics; `evaluation/run_profile.py` prints per-role token comparisons
+- **L1 seeded-error suite**: `evaluation/` ships 11 citations (9 seeded errors: fabricated / retracted / overstated / misattributed / secondhand / wrong-context; 1 corrected publication; 1 clean control), every identifier and status verified against PubMed/Crossref/OpenAlex, with expected verdicts — scored deterministically by `evaluation/score_l1.py` (sensitivity/specificity, mean and range over runs); protocol in [evaluation/PROTOCOL.md](evaluation/PROTOCOL.md)
+- **Offline pre-checks & CI**: tool-layer unit tests, workflow type-check, an adversarial mock run (scripted agents + real tools: a checker that misses bad papers, a crashing search source, a non-whitelisted citation and an inconsistent p-value must all be caught by code gates; missing tools must degrade gracefully), and the cross-carrier sync check — run on every push by GitHub Actions at zero token cost
 
 ## Roadmap
 

@@ -124,6 +124,7 @@ name: "科研：<主题短标签>"
 
 ## 内部机制（供了解）
 
+- **确定性工具层**（`~/.zcode/skills/provenance-lab/tools/plab.py`，install.sh 安装）：工作流在 S2 关卡前用代码逐条解析纳入文献的标识符与撤稿/关注/更正状态（不存在或撤稿即判失败，不依赖抽查）、检索后代码去重、S8 新增引文终检（初稿引用 ⊆ 证据表 ∪ SAP 方法学文献 ∪ 深审核验来源，APA 统计量复算 p 值）、文献归档由工具合法下载（PMC OA 数据集优先，记录许可证）。工具结果 JSON 存 `provenance-lab-output/tools/` 进审计包；工具缺失或网络失败时回落到 agent 核查并写进未覆盖清单
 - **事实账本**：立题/证据/SAP/审稿每个关卡通过后记账，后续专家都能看到前情
 - **预注册式 SAP**：统计方法学家在看到任何结果之前定计划，从流程上杜绝 p-hacking
 - **引文白名单**：初稿只允许引用已核查证据表内的文献（PMID/DOI 逐条落地核查）或本研究自身结果，杜绝编造引文
@@ -167,6 +168,7 @@ name: "科研：<主题短标签>"
 7. 仓库 `adapters/codex/provenance-lab.md` 与 `adapters/claude-code/provenance-lab/pipeline.md`
 8. 仓库 `adapters/universal/`（system-prompt 中英双版若受影响）
 9. 仓库 `README.md` + `README.en.md`（双语 README 的功能描述、表格、章节）
+10. 仓库 `tools/`（确定性工具层，改动须过 `python3 -m unittest discover -s tools/tests`）；工作流改动须过 `node ci/typecheck.mjs` 与 `node ci/mock-run.mjs`（含 `--no-tools`）；`python3 ci/check_sync.py` 校验协议副本与中英锚点一致
 
 完成同步后 git commit + push，并在 `docs/development-log.md` 记决策编号与理由。评测相关变更（引文深审/状态审计）另需按 L1 协议重跑植错测试。
 
@@ -176,7 +178,7 @@ name: "科研：<主题短标签>"
 
 ## 优化原则（token 纪律，严谨度不减）
 
-检索两段式（题录先行、count 记总量、前 40 取摘要）｜立题勘察预算（摘要级 ≤8 篇）｜引文关卡题录+摘要级（全文是深审职责）｜长计算分块+心跳日志｜成文角色传文件路径不传全量 JSON。**合入条件：L0 指标不恶化**（见评测节）。**迭代重试一律用轻量课题回归**（标准课题池与验收判据见 evaluation/PROTOCOL.md「迭代回归测试规范」），收敛后可选全尺度终验。
+**代码能定案的不交给 agent**（标识符、撤稿状态、白名单、统计一致性、下载——见确定性工具层）｜检索两段式（题录先行、count 记总量、前 40 取摘要）｜立题勘察预算（摘要级 ≤8 篇）｜引文关卡题录+摘要级（全文是深审职责）｜长计算分块+心跳日志｜成文角色传文件路径不传全量 JSON。**合入条件：L0 指标不恶化**（见评测节）。**迭代重试一律用轻量课题回归**（标准课题池与验收判据见 evaluation/PROTOCOL.md「迭代回归测试规范」），收敛后可选全尺度终验。**不可优化的固定项**（借鉴 Harness² 的维度划分，见 evaluation/PROTOCOL.md）：引用白名单、撤稿硬关卡、SAP 先于结果冻结、code-to-data、付费墙不绕过、诚实未覆盖清单——任何优化只能动执行机制（工具指引、预算、编排），不能放松这些规则。
 
 ## 评测（衡量这个 skill 的准确性）
 

@@ -19,6 +19,7 @@ Copyright 2026 provenance-lab contributors. Licensed under the Apache License, V
 | [ruvnet/claude-flow](https://github.com/ruvnet/ruflo) | MIT | 共享事实账本（黑板模式） |
 | [mattpocock/skills（grill-me / grilling）](https://github.com/mattpocock/skills) | 见其仓库 | 一次一问+推荐答案的拷问式访谈、答辩拷问思想 |
 | [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills) | Apache-2.0（代码）/ CC-BY-4.0（内容） | 运行时可选依赖：文献/数据库检索技能（本项目不再分发其内容） |
+| [google-research/harness2（Harness²）](https://github.com/google-research/harness2) | Apache-2.0 | 开发期优化循环的方法论：harness 改动按维度划分、用执行对比验证改动；本项目据此划出不可优化的科研完整性固定项，并以 L1 ground truth 做新旧对照试跑（未使用其代码，非运行时依赖） |
 | [MicheleNuijten/statcheck](https://github.com/MicheleNuijten/statcheck) | GPL-3.0 | 从 APA 格式报告复算 p 值并标记不一致（`tools/plab.py statcheck` 为独立的 Python 标准库实现，未复制或链接其代码） |
 
 **数据服务与开放数据**（`tools/plab.py` 运行时调用，遵守各自条款与限流，本仓库不分发其数据）：NCBI E-utilities（PubMed）、Crossref REST API、OpenAlex（CC0）、[PMC Open Access 数据集](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/)（NCBI 经 AWS 开放数据计划提供；每篇文章保留其自身许可证，`oa-fetch` 在清单中记录 `license_code`）。

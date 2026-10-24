@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Tool layer unit tests
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: Cross-carrier sync (D23)
+        run: python3 ci/check_sync.py
+      - name: Installer lint
+        run: shellcheck install.sh
+      - name: Workflow type-check
+        working-directory: ci
+        run: npm ci && node typecheck.mjs
+      - name: Mock run without tools (every gate must fall back)
+        run: node ci/mock-run.mjs --no-tools
+
+  online:
+    # Hits PubMed / Crossref / OpenAlex; an upstream outage should not block merging.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Tool layer online tests (API-verified L1 cases)
+        run: PLAB_ONLINE=1 python3 -m unittest discover -s tools/tests -v
+      - name: Adversarial mock run with real tools
+        run: |
+          cd ci && npm ci && cd ..
+          node ci/mock-run.mjs

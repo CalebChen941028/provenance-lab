@@ -4,6 +4,7 @@
 
 - 中文用户：把 `system-prompt.zh.md` 全文放入你的 agent 的系统提示/规则设置，并附上 `../../core/pipeline.md`
 - English users: inject `system-prompt.en.md` into your agent's system prompt / custom instructions, alongside `../../core/pipeline.en.md`
+- 可选 / optional：把 `../../tools/plab.py` 放到 agent 能执行的位置并在提示中注明路径，即启用确定性工具层（仅需 python3）
 
 ## 各平台注入位置速查
 
