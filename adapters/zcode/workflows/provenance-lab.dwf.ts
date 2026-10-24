@@ -827,13 +827,14 @@ if (!citation.passed) {
 const gateExcludedIds: string[] = citation.passed ? [] : citation.failedIds;
 if (!citation.passed) {
   // 协议 S2：两轮仍失败的条目从证据表剔除并记录——写作员的引用白名单就是证据表，失败条目不能留在里面
-  const stillFailed = new Set(gateExcludedIds);
+  const stillFailed = new Set(gateExcludedIds.map(normKey));
   evidence = await synthesizer.ask<EvidenceTable>(
     `引文核查两轮后以下条目仍未通过，按协议从证据表剔除（不再更正）：\n${citation.failures.join("\n")}\n对应条目 id：${citation.failedIds.join("、") || "（核查员未给出 id，请按失败描述逐条定位）"}\n请从 ${OUT}/02-evidence-table.md 删除这些条目，在排除记录中逐条注明「引文核查两轮未通过」及原因，返回更新后的证据表。`,
   );
   // 代码兜底：即使综合员漏删，后续角色拿到的白名单也不含失败条目
-  const leftover = evidence.included.filter((p) => stillFailed.has(p.id)).map((p) => p.id);
-  evidence.included = evidence.included.filter((p) => !stillFailed.has(p.id));
+  // 按规范化标识符比较：综合员改写证据表时可能改变 id 的书写形式（如 "PMID: 1" 与 "PMID:1"）
+  const leftover = evidence.included.filter((p) => stillFailed.has(normKey(p.id))).map((p) => p.id);
+  evidence.included = evidence.included.filter((p) => !stillFailed.has(normKey(p.id)));
   if (leftover.length > 0) log(`综合员未删净的失败条目已由代码剔除：${leftover.join("、")}`);
 }
 stage("引文核查", citation.passed ? "passed" : "issues");
@@ -1115,7 +1116,7 @@ if (finalIssues.length > 0) {
   finalIssues = finalCheckIssues(finalCheck);
 }
 const finalCheckRan = finalCheck.wl !== null || finalCheck.sc !== null;
-stage("引文终检", finalCheckRan && finalIssues.length === 0 ? "passed" : "issues");
+stage("引文终检", finalCheck.wl !== null && finalCheck.sc !== null && finalIssues.length === 0 ? "passed" : "issues");
 record(
   finalCheckRan
     ? `引文终检（确定性）：${finalCheck.wl ? `${finalCheck.wl.identified}/${finalCheck.wl.references} 条参考文献可核对，白名单外 ${finalCheck.wl.outside.length} 条` : "白名单检查未能运行"}；${finalCheck.sc ? `APA 统计报告 ${finalCheck.sc.checked} 处，不自洽 ${finalCheck.sc.inconsistent} 处` : "统计一致性检查未能运行"}`
@@ -1229,6 +1230,8 @@ const verified: string[] = [
 const notCovered: string[] = [];
 if (failedSources.length > 0) notCovered.push(`检索源失败已降级跳过：${failedSources.join("、")}；证据表未覆盖这些来源，可单独补检`);
 if (!finalCheckRan) notCovered.push("确定性引文终检未能运行（tools/plab.py 缺失或失败），初稿引用 ⊆ 白名单与统计报告一致性未经代码核对，投稿前须人工逐条核对");
+else if (finalCheck.wl === null) notCovered.push("引文白名单终检未能运行（统计一致性检查已运行），初稿引用 ⊆ 白名单未经代码核对，投稿前须人工逐条核对");
+else if (finalCheck.sc === null) notCovered.push("统计报告一致性检查未能运行（白名单终检已运行），初稿中统计量与 p 值是否自洽未经代码复算");
 if (finalCheck.wl && finalCheck.wl.unidentified.length > 0) notCovered.push(`${finalCheck.wl.unidentified.length} 条参考文献无 PMID/DOI（多为专著与经典方法学文献），终检无法核对其是否在白名单内，须人工确认`);
 if (!analysis.realData) notCovered.push("未运行真实数据分析（未提供 dataPath）；提供后可从统计计划阶段重跑");
 if (!verifyCommand) notCovered.push("复现性由分析员自报重跑退出码，未经脚本统一关卡");

@@ -81,6 +81,8 @@ function respond(name, prompt, opts) {
     case "Synth": {
       // stubborn synthesizer: never removes anything, so only the code backstop can
       const included = [...GOOD, RETRACTED, FABRICATED].map((p) => ({ ...p, status: "clean" }));
+      // on the excision request it also rewrites identifier spelling — the backstop must still match
+      if (prompt.includes("按协议从证据表剔除")) for (const p of included) p.id = p.id.replace("PMID:", "PMID: ");
       w(`${OUT}/02-evidence-table.md`, "# 证据表\n" + included.map((p) => `- ${p.id} ${p.title}`).join("\n"));
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
@@ -214,6 +216,7 @@ if (withTools) {
     check(stages["引文核查"] === "issues" && excluded >= 2, "citation gate fails on retracted + fabricated even though the checker passed them");
     const writerSaw = writerDraftPrompt;
     check(writerSaw.includes("PMID:9500320") && writerSaw.includes("PMID:99999999") && writerSaw.includes("禁止引用"), "writer is told the excluded ids are off-limits");
+    check(logs.some((l) => l.includes("综合员未删净的失败条目已由代码剔除") && l.includes("9500320") && l.includes("99999999")), "code backstop removes failed entries even when their id spelling changed");
     const wl1 = JSON.parse(fs.readFileSync(outFile("tools/whitelist.json"), "utf8"));
     const outside1 = wl1.outside.map((r) => r.label).sort().join(",");
     check(outside1 === "5,6", `first final check flags refs 5 (not whitelisted) and 6 (gate-excluded); got ${outside1}`);
