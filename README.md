@@ -89,7 +89,7 @@ bash install.sh     # 自动探测 ZCode / Claude Code / Codex / opencode 并安
 │   └── universal/                 # DeepSeek harness / WorkBuddy / opencode 等通用注入
 ├── evaluation/                    # 评测协议、L1 植错集、评分与逐角色 token 画像脚本、结果汇总
 ├── ci/                            # 工作流类型检查、对抗式模拟运行、全域同步检查
-├── examples/                      # 全流程示例产物
+├── examples/                      # 示例产物：psu-sleep-simulation（基准全流程）、la-caffeine-test-anxiety（轻量回归，全套产物可一键重跑并 sha256 核验）
 └── docs/development-log.md        # 设计与决策日志（D0 起）
 ```
 

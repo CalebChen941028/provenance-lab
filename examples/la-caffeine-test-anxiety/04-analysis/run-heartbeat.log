@@ -1,0 +1,64 @@
+[2026-10-24 02:18:17] 01-calibrate :: start 校准开始（种子 20261023，Table 2 初值）
+[2026-10-24 02:18:17] 01-calibrate :: done 迭代2次收敛 rho_final={'ct': np.float64(0.249582), 'cp': np.float64(0.159879), 'tp': np.float64(0.26849)}
+[2026-10-24 02:19:39] 02-mc-nullA :: block1/4 完成 sims 1-500
+[2026-10-24 02:19:40] 02-mc-nullA :: block2/4 完成 sims 501-1000
+[2026-10-24 02:19:40] 02-mc-nullA :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:19:40] 02-mc-nullA :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:19:40] 02-mc-nullB :: block1/4 完成 sims 1-500
+[2026-10-24 02:19:41] 02-mc-nullB :: block2/4 完成 sims 501-1000
+[2026-10-24 02:19:41] 02-mc-nullB :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:19:41] 02-mc-nullB :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:19:41] 02-montecarlo :: done NullA=0.7680 NullB(H1b)=0.2760 NullB(H1a附带)=0.0840 verdict=FAIL
+[2026-10-24 02:21:06] 02-mc-nullA :: block1/4 完成 sims 1-500
+[2026-10-24 02:21:07] 02-mc-nullA :: block2/4 完成 sims 501-1000
+[2026-10-24 02:21:07] 02-mc-nullA :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:21:07] 02-mc-nullA :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:21:08] 02-mc-nullB :: block1/4 完成 sims 1-500
+[2026-10-24 02:21:08] 02-mc-nullB :: block2/4 完成 sims 501-1000
+[2026-10-24 02:21:08] 02-mc-nullB :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:21:08] 02-mc-nullB :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:21:08] 02-montecarlo :: done NullA=0.0545 NullB(H1b)=0.0565 NullB(H1a附带)=0.1170 verdict=PASS
+[2026-10-24 02:24:34] 03-analyze :: start 冻结→门→分析
+[2026-10-24 02:24:56] 03-analyze :: start 冻结→门→分析
+[2026-10-24 02:24:56] 03-analyze :: done 全部分析与表图完成
+[2026-10-24 02:26:06] 01-calibrate :: start 校准开始（种子 20261023，Table 2 初值）
+[2026-10-24 02:26:06] 01-calibrate :: done 迭代2次收敛 rho_final={'ct': np.float64(0.249582), 'cp': np.float64(0.159879), 'tp': np.float64(0.26849)}
+[2026-10-24 02:26:08] 02-mc-nullA :: block1/4 完成 sims 1-500
+[2026-10-24 02:26:08] 02-mc-nullA :: block2/4 完成 sims 501-1000
+[2026-10-24 02:26:08] 02-mc-nullA :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:26:09] 02-mc-nullA :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:26:09] 02-mc-nullB :: block1/4 完成 sims 1-500
+[2026-10-24 02:26:09] 02-mc-nullB :: block2/4 完成 sims 501-1000
+[2026-10-24 02:26:10] 02-mc-nullB :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:26:10] 02-mc-nullB :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:26:10] 02-montecarlo :: done NullA=0.0545 NullB(H1b)=0.0565 NullB(H1a附带)=0.1170 verdict=PASS
+[2026-10-24 02:26:11] 03-analyze :: start 冻结→门→分析
+[2026-10-24 02:26:11] 03-analyze :: done 全部分析与表图完成
+[2026-10-24 02:28:17] 03-analyze :: start 冻结→门→分析
+[2026-10-24 02:28:18] 03-analyze :: done 全部分析与表图完成
+[2026-10-24 02:28:50] 01-calibrate :: start 校准开始（种子 20261023，Table 2 初值）
+[2026-10-24 02:28:50] 01-calibrate :: done 迭代2次收敛 rho_final={'ct': np.float64(0.249582), 'cp': np.float64(0.159879), 'tp': np.float64(0.26849)}
+[2026-10-24 02:28:52] 02-mc-nullA :: block1/4 完成 sims 1-500
+[2026-10-24 02:28:52] 02-mc-nullA :: block2/4 完成 sims 501-1000
+[2026-10-24 02:28:53] 02-mc-nullA :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:28:53] 02-mc-nullA :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:28:53] 02-mc-nullB :: block1/4 完成 sims 1-500
+[2026-10-24 02:28:53] 02-mc-nullB :: block2/4 完成 sims 501-1000
+[2026-10-24 02:28:54] 02-mc-nullB :: block3/4 完成 sims 1001-1500
+[2026-10-24 02:28:54] 02-mc-nullB :: block4/4 完成 sims 1501-2000
+[2026-10-24 02:28:54] 02-montecarlo :: done NullA=0.0545 NullB(H1b)=0.0565 NullB(H1a附带)=0.1170 verdict=PASS
+[2026-10-24 02:28:55] 03-analyze :: start 冻结→门→分析
+[2026-10-24 02:28:56] 03-analyze :: done 全部分析与表图完成
+[2026-10-24 03:15:52] 01-calibrate :: start 校准开始（种子 20261023，Table 2 初值）
+[2026-10-24 03:15:52] 01-calibrate :: done 迭代2次收敛 rho_final={'ct': np.float64(0.249582), 'cp': np.float64(0.159879), 'tp': np.float64(0.26849)}
+[2026-10-24 03:15:54] 02-mc-nullA :: block1/4 完成 sims 1-500
+[2026-10-24 03:15:55] 02-mc-nullA :: block2/4 完成 sims 501-1000
+[2026-10-24 03:15:55] 02-mc-nullA :: block3/4 完成 sims 1001-1500
+[2026-10-24 03:15:55] 02-mc-nullA :: block4/4 完成 sims 1501-2000
+[2026-10-24 03:15:56] 02-mc-nullB :: block1/4 完成 sims 1-500
+[2026-10-24 03:15:56] 02-mc-nullB :: block2/4 完成 sims 501-1000
+[2026-10-24 03:15:56] 02-mc-nullB :: block3/4 完成 sims 1001-1500
+[2026-10-24 03:15:57] 02-mc-nullB :: block4/4 完成 sims 1501-2000
+[2026-10-24 03:15:57] 02-montecarlo :: done NullA=0.0545 NullB(H1b)=0.0565 NullB(H1a附带)=0.1170 verdict=PASS
+[2026-10-24 03:15:58] 03-analyze :: start 冻结→门→分析
+[2026-10-24 03:15:59] 03-analyze :: done 全部分析与表图完成

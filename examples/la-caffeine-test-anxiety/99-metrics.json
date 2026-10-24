@@ -1,0 +1,37 @@
+{
+  "mode": "pipeline",
+  "integrityMode": "development",
+  "teamProfile": "hybrid",
+  "evidenceIncluded": 55,
+  "citationGate": {
+    "checked": 13,
+    "passed": true,
+    "failures": 0
+  },
+  "statsReview": {
+    "verdict": "accept",
+    "rounds": 0
+  },
+  "peerReview": {
+    "rounds": 1,
+    "openMajors": 0
+  },
+  "grill": {
+    "questions": 6,
+    "unanswered": 3
+  },
+  "citationAudit": {
+    "entries": 41,
+    "problems": 0,
+    "abstractOnly": 26
+  },
+  "papers": {
+    "downloaded": 16,
+    "notDownloaded": 24
+  },
+  "reproducibility": "一键重跑：cd provenance-lab-output/04-analysis && bash run_all.sh（清空 mc-cache 后 fresh 全量）终次运行退出码 0（FINAL_EXIT=0，全程约 6 秒）；两次独立运行冻结数据 SHA256 完全一致（46ced49db1bd424a99bfd6c299fc8a674c26070ad1625f8202d53569218051d9），生成确定性验证通过；快速 β₁ 检验与 statsmodels 等价性最大差异 2.66e-15。产物：tables/ 9 张表（table-S0 门、S1/S1b 诊断与 Cook's D、S2 校正、S3 蒙特卡洛、S5 全模型系数、R1 描述、R2 主结果、R3 敏感性）、figures/ 3 张图（R1 散点+OLS+LOWESS、R2 诊断四联、S1 边际形态）、input/ 冻结数据与 manifest、run-heartbeat.log、decisions-log.md。",
+  "reproFailed": false,
+  "realData": false,
+  "findingsTotal": 4,
+  "notCoveredTotal": 7
+}

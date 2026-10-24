@@ -1,0 +1,12 @@
+{
+  "n": 300,
+  "seed_gen": 20261023,
+  "rho_final": {
+    "ct": 0.249582,
+    "cp": 0.159879,
+    "tp": 0.26849
+  },
+  "sha256": "46ced49db1bd424a99bfd6c299fc8a674c26070ad1625f8202d53569218051d9",
+  "rows": 300,
+  "note": "模拟数据（演示口径）；生成与校准细节见 calibration-params.json"
+}

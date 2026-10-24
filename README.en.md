@@ -88,7 +88,7 @@ Optional: [google-deepmind/science-skills](https://github.com/google-deepmind/sc
 ├── adapters/                      # zcode (skill + dynamic workflow) · claude-code · codex · universal
 ├── evaluation/                    # protocol, L1 seeded set, scoring and per-role token profiling, result summaries
 ├── ci/                            # workflow type-check, adversarial mock run, cross-carrier sync check
-├── examples/                      # full-run example outputs
+├── examples/                      # psu-sleep-simulation (benchmark run), la-caffeine-test-anxiety (lightweight regression, every deliverable, re-runnable with SHA-256 check)
 └── docs/development-log.md        # design & decision log (from D0)
 ```
 
