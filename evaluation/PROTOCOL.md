@@ -43,7 +43,7 @@
 **验收判据**（与优化合入条件一致）：
 1. L0 指标（99-metrics.json）不劣于上一轮轻量基线——尤其引文关卡通过数、深审问题检出数（L-C 用 L1 的敏感度/特异度）
 2. 逐阶段 token/耗时对比：目标环节下降、其余环节无异常膨胀——`python3 evaluation/run_profile.py "<本轮运行名>" --baseline "<上轮运行名>"` 从本机 ZCode 数据库只读生成逐角色对照表
-3. 产物完整性：00-09、99-metrics、05a JSON 与 tools/ 下的确定性结果齐全，学术呈现规范抽检合格
+3. 产物完整性：00-09、99-metrics、05a JSON 与 tool-records/ 下的确定性结果齐全，学术呈现规范抽检合格
 
 **离线预检（零 token，每次改动先过）**：`python3 -m unittest discover -s tools/tests`（工具层）、`node ci/typecheck.mjs`（工作流类型）、`node ci/mock-run.mjs` 与 `--no-tools`（脚本化 agent + 真实工具的对抗式端到端运行：核查员漏判、检索源崩溃、白名单外引用、p 值不自洽都必须被代码关卡拦下；工具缺失时每个关卡必须回落）、`python3 ci/check_sync.py`（协议副本逐字节一致、中英协议关键锚点齐全）。离线预检不过，不进轻量回归。
 

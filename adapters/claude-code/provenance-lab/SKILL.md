@@ -18,5 +18,5 @@ description: >-
 3. **模型分层（可选）**：如可用多模型，把关与核心角色（统计、审稿、写作、引文深审）用最强模型，检索可用轻量模型；统计永不降级。
 4. **工具**：文献检索优先用 WebFetch/WebSearch 直接调 PubMed E-utilities、EuropePMC、OpenAlex、Semantic Scholar API（pipeline.md §0 规则 6 与 S2 合法性分层）；分析用 Bash 跑 Python（uv/pip 安装依赖）。
 5. **产物**：全部写入 `provenance-lab-output/`（有数据集时放数据集文件夹下），最终按 pipeline.md §8 交付五件套 + 审计包并输出结论/发现/已验证/未覆盖四段式报告。
-6. **确定性工具层**（pipeline.md §0 规则 12）：本 skill 目录下的 `tools/plab.py`（安装时已复制，仅需 python3）用 Bash 调用——S2 关卡前 `resolve --file <纳入文献 JSON>` 逐条解析标识符与撤稿状态；S4 第一步 `schema <数据文件>`；S7.6 `oa-fetch --draft 06-draft.md --dir provenance-lab-output/papers`；S8 `whitelist 06-draft.md --allowed <证据表 id> --allowed-from 03-sap.md` 与 `statcheck 06-draft.md`。工具结论优先于子 agent 自报；工具结果 JSON 存到 `provenance-lab-output/tools/` 供审计；工具不可用时回落到 agent 核查并写进未覆盖清单。
+6. **确定性工具层**（pipeline.md §0 规则 12）：本 skill 目录下的 `tools/plab.py`（安装时已复制，仅需 python3）用 Bash 调用——S2 关卡前 `resolve --file <纳入文献 JSON>` 逐条解析标识符与撤稿状态；S4 第一步 `schema <数据文件>`；S7.6 `oa-fetch --draft 06-draft.md --dir provenance-lab-output/papers`；S8 `whitelist 06-draft.md --allowed <证据表 id> --allowed-from 03-sap.md` 与 `statcheck 06-draft.md`。工具结论优先于子 agent 自报；工具结果 JSON 存到 `provenance-lab-output/tool-records/` 供审计；工具不可用时回落到 agent 核查并写进未覆盖清单。
 7. **诚实红线**：查不到、答不出就进"未覆盖"清单；绝不编造文献与数据；绝不绕过付费墙或爬取 Google Scholar。

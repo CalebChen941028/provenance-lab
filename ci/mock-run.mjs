@@ -76,7 +76,7 @@ function respond(name, prompt, opts) {
       const src = name.split("·")[1];
       if (src === "arXiv") throw new Error("simulated source outage");
       const papers = src === "OpenAlex" ? [DUP_BY_TITLE, GOOD[2]] : [GOOD[0], GOOD[1], RETRACTED, FABRICATED];
-      return { source: src, papers: papers.map((p) => ({ ...p })), strategy: `${src} query` };
+      return { source: src, papers: papers.map((p) => ({ ...p })), strategy: `${src} query`, truncated: src === "SemanticScholar" };
     }
     case "Synth": {
       // stubborn synthesizer: never removes anything, so only the code backstop can
@@ -87,7 +87,10 @@ function respond(name, prompt, opts) {
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
     case "CiteGate":
-      // the semantic checker misses both bad identifiers — the deterministic layer must not
+      // round 1: the semantic checker misses both bad identifiers — the deterministic layer must not.
+      // round 2: it first flags a wording problem on a legitimate paper (what happened in L-A D37);
+      // that entry must be corrected and re-checked, not excised. The targeted re-check passes.
+      if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 8, failures: ["PMID:35149136：finding 与摘要不符（汇总 r 写错），建议改写后保留"], failedIds: ["PMID:35149136"] };
       return { passed: true, checked: 8, failures: [], failedIds: [] };
     case "Stats":
       w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
@@ -202,34 +205,37 @@ check(fs.existsSync(metricsFile), "99-metrics.json written by code");
 if (fs.existsSync(metricsFile)) check(JSON.stringify(JSON.parse(fs.readFileSync(metricsFile, "utf8"))) === JSON.stringify(result.metrics), "99-metrics.json equals returned metrics");
 check(result.notCovered.some((s) => s.includes("arXiv")), "failed search source is disclosed in notCovered");
 check(stages["文献检索"] === "issues", "search stage marked issues when a source fails");
+check(result.notCovered.some((s) => s.includes("提前结束") && s.includes("SemanticScholar")) && result.metrics.deterministic.sourcesTruncated === 1, "a rate-limited, truncated source is disclosed");
 check(result.metrics.deterministic.candidates.raw > result.metrics.deterministic.candidates.deduped, "code-side dedup merged duplicate candidates");
 check(fs.existsSync(outFile("05a-citation-audit.json")), "structured 05a JSON written");
 check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
 check(stages["分析执行"] === "passed" && !fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "analysis stage passes once the script uses relative paths");
 
 if (withTools) {
-  const net = JSON.parse(fs.readFileSync(outFile("tools/resolve-evidence.json"), "utf8")).records;
+  const net = JSON.parse(fs.readFileSync(outFile("tool-records/resolve-evidence.json"), "utf8")).records;
   const online = net.some((r) => r.found !== null);
   check(online, "deterministic resolve reached PubMed/Crossref/OpenAlex (network required)");
   if (online) {
-    const excluded = result.metrics.citationGate.failures;
-    check(stages["引文核查"] === "issues" && excluded >= 2, "citation gate fails on retracted + fabricated even though the checker passed them");
+    const gate = result.metrics.citationGate;
+    check(stages["引文核查"] === "issues" && gate.excluded === 2, `citation gate excludes retracted + fabricated even though the checker passed them (excluded ${gate.excluded})`);
+    check(gate.corrected === 1 && calls.some((c) => c.name.startsWith("CiteGate") && c.prompt.includes("已按上轮核查意见修正")), "a wording problem first found in round 2 is corrected and re-checked, not excised");
+    check(!writerDraftPrompt.includes("PMID:35149136") || !/禁止引用：[^\n]*35149136/.test(writerDraftPrompt), "the corrected paper stays citable");
     const writerSaw = writerDraftPrompt;
     check(writerSaw.includes("PMID:9500320") && writerSaw.includes("PMID:99999999") && writerSaw.includes("禁止引用"), "writer is told the excluded ids are off-limits");
     check(logs.some((l) => l.includes("综合员未删净的失败条目已由代码剔除") && l.includes("9500320") && l.includes("99999999")), "code backstop removes failed entries even when their id spelling changed");
-    const wl1 = JSON.parse(fs.readFileSync(outFile("tools/whitelist.json"), "utf8"));
+    const wl1 = JSON.parse(fs.readFileSync(outFile("tool-records/whitelist.json"), "utf8"));
     const outside1 = wl1.outside.map((r) => r.label).sort().join(",");
     check(outside1 === "5,6", `first final check flags refs 5 (not whitelisted) and 6 (gate-excluded); got ${outside1}`);
     check(!wl1.outside.some((r) => r.label === "3"), "PMID cited for a DOI-listed paper is matched via PMID↔DOI mapping");
     check(wl1.unidentified.length === 1, "reference without identifiers counted as unidentified");
-    const sc1 = JSON.parse(fs.readFileSync(outFile("tools/statcheck.json"), "utf8"));
+    const sc1 = JSON.parse(fs.readFileSync(outFile("tool-records/statcheck.json"), "utf8"));
     check(sc1.inconsistent === 1 && sc1.decisionErrors === 1, "statcheck flags t(30) = 1.20, p = .03 as a decision error");
     check(stages["引文终检"] === "passed", "final check passes after the writer's fix");
     check(result.metrics.deterministic.whitelist.outside === 0 && result.metrics.deterministic.statcheck.inconsistent === 0, "metrics record the clean second pass");
     check(result.notCovered.some((s) => s.includes("无 PMID/DOI")), "unidentified references disclosed in notCovered");
     const lib = calls.find((c) => c.name.startsWith("Librarian"));
     check(lib.system.includes("下载已由确定性工具完成"), "librarian only writes the manifest when oa-fetch ran");
-    check(fs.existsSync(outFile("tools/papers.json")), "oa-fetch manifest written");
+    check(fs.existsSync(outFile("tool-records/papers.json")), "oa-fetch manifest written");
   }
 } else {
   check(result.notCovered.some((s) => s.includes("确定性引文终检未能运行")), "missing tools are disclosed in notCovered");
