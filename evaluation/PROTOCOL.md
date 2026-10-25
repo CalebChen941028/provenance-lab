@@ -5,7 +5,7 @@
 ## L0 · 内建遥测（每次全流程运行自动产生）
 
 - 每次运行自动落盘 `<产物目录>/99-metrics.json`，并在最终返回的 `metrics` 字段携带同一数据
-- 指标：证据纳入数、引文核查关卡（抽查数/通过/失败/修正保留/剔除/未绑定意见）、统计审稿（结论/轮数/待关闭 minor）、同行评审（轮数/遗留 major/待关闭 minor）、答辩拷问（问数/未答出）、引文深审（条数/问题数/仅摘要级/无原文）、文献归档（已下载/待获取）、复现性（含 reproFailed）、findings/notCovered 总数、模式与档位；`deterministic` 段记录确定性工具层（工具调用与失败数、检索源失败数、去重前后候选数、证据表标识符解析尝试/未确认 unresolved/不存在/撤稿数、白名单终检与 statcheck 结果）
+- 指标：证据纳入数、引文核查关卡（抽查数/通过/失败/修正保留/剔除/未绑定意见）、统计审稿（结论/轮数/待关闭 minor）、同行评审（轮数/遗留 major/待关闭 minor）、答辩拷问（问数/未答出）、引文深审（引用点数/问题数/覆盖异常/显式删除点/仅摘要级/无原文）、文献归档（已下载/待获取）、复现性（含 reproFailed）、findings/notCovered 总数、模式与档位；`deterministic` 段记录确定性工具层（工具调用与失败数、检索源失败数、去重前后候选数、证据表标识符解析尝试/未确认 unresolved/不存在/撤稿数、白名单终检、statcheck 与 analysisManifest 的 listed/verified/ok（仅当前清单快照，非独立重跑）结果）
 - 用法：跨运行汇总成基线表；任何优化（提速降 token、人设修改）前后对照，**指标不得恶化**是合入条件之一
 
 ## L1 · 引文深审植错测试集（`citation-error-cases/`）
@@ -45,7 +45,7 @@
 2. 逐阶段 token/耗时对比：目标环节下降、其余环节无异常膨胀——`python3 evaluation/run_profile.py "<本轮运行名>" --baseline "<上轮运行名>"` 从本机 ZCode 数据库只读生成逐角色对照表
 3. 产物完整性：00-09、99-metrics、05a JSON 与 tool-records/ 下的确定性结果齐全，学术呈现规范抽检合格
 
-**离线预检（零 token，每次改动先过）**：`python3 -m unittest discover -s tools/tests`（工具层）、`node ci/typecheck.mjs`（工作流类型）、`node ci/mock-run.mjs`、`--no-stats` 与 `--no-tools`（脚本化 agent + 真实工具的对抗式端到端运行：核查员漏判、检索源崩溃、白名单外引用、p 值不自洽都必须被代码关卡拦下；工具缺失时每个关卡必须回落）、`python3 ci/check_sync.py`（协议副本逐字节一致、中英协议关键锚点齐全）。离线预检不过，不进轻量回归。`--no-stats` 验证零匹配不能判通过；`--no-tools --stale-recheck` 验证范围外失败id不能计修正通过；带工具的 mock 与在线单元测试仍需联网，但不消耗 LLM token。S2 的可纠正警示即使漏填 failedIds 也须修正复核，不能静默遗漏。
+**离线预检（零 token，每次改动先过）**：`python3 -m unittest discover -s tools/tests`（工具层）、`node ci/typecheck.mjs`（工作流类型）、`node ci/mock-run.mjs`、`--no-stats` 与 `--no-tools`（脚本化 agent + 真实工具的对抗式端到端运行：核查员漏判、检索源崩溃、白名单外引用、p 值不自洽都必须被代码关卡拦下；工具缺失时每个关卡必须回落）、`python3 ci/check_sync.py`（协议副本逐字节一致、中英协议关键锚点齐全）。离线预检不过，不进轻量回归。`--no-stats` 验证零匹配不能判通过；`--no-tools --stale-recheck` 验证范围外失败id不能计修正通过；带工具的 mock 与在线单元测试仍需联网，但不消耗 LLM token。`--no-tools --audit-recheck-errors` 验证缺失/重复/范围外深审键不能抹除原问题，`--no-tools --audit-remove` 验证明示删除须保留原判定与依据。S2 的可纠正警示即使漏填 failedIds 也须修正复核，不能静默遗漏。
 
 **不可优化的固定项（integrity invariants）**：借鉴 Harness²（google-research/harness2，Apache-2.0）把 harness 改动分为"执行机制"与"领域知识"两个维度的做法，本项目再划出第三类——**任何优化都不得触碰的科研完整性规则**：引用白名单、撤稿/关注硬关卡、SAP 先于结果冻结、code-to-data、付费墙与反爬不绕过、未覆盖清单如实披露、工具结论优先于 agent 自报。优化只能改执行机制（工具指引、token 预算、编排顺序、成文纪律）；一项改动若需要放松上述任一规则才能见效，判为不合入。
 

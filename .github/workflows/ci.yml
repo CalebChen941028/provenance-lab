@@ -28,6 +28,9 @@ jobs:
         run: |
           node ci/mock-run.mjs --no-tools
           node ci/mock-run.mjs --no-tools --stale-recheck
+          node ci/mock-run.mjs --no-tools --audit-recheck-errors
+          node ci/mock-run.mjs --no-tools --audit-recheck-invalid
+          node ci/mock-run.mjs --no-tools --audit-remove
 
   online:
     # Hits PubMed / Crossref / OpenAlex; an upstream outage should not block merging.
@@ -48,4 +51,5 @@ jobs:
           cd ci && npm ci && cd ..
           node ci/mock-run.mjs
           node ci/mock-run.mjs --no-stats
+          node ci/mock-run.mjs --audit-swap-source
           node ci/mock-run.mjs --solo

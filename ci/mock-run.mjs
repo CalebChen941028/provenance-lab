@@ -12,9 +12,12 @@
 //   node ci/mock-run.mjs --solo     # citation-audit mode on the L1 seeded draft → score_l1.py
 //   node ci/mock-run.mjs --no-stats # zero-match coverage must be disclosed (with real tools)
 //   node ci/mock-run.mjs --no-tools --stale-recheck # out-of-scope re-check IDs cannot pass
+//   node ci/mock-run.mjs --no-tools --audit-recheck-errors # missing/duplicate/unknown citation keys
+//   node ci/mock-run.mjs --no-tools --audit-remove # explicit citation-point removal retains evidence
 //   PLAB_WORKFLOW=/path/to/old.dwf.ts node ci/mock-run.mjs # compare a previous workflow
 //   add --keep to leave the scratch workspace on disk for inspection
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,6 +33,11 @@ const solo = process.argv.includes("--solo");
 const noStats = process.argv.includes("--no-stats");
 // Run with --no-tools to exercise an auditor repeating an out-of-scope old failure.
 const staleRecheck = process.argv.includes("--stale-recheck");
+const auditRecheckErrors = process.argv.includes("--audit-recheck-errors");
+const auditRemove = process.argv.includes("--audit-remove");
+const auditRecheckInvalid = process.argv.includes("--audit-recheck-invalid");
+const badAuditRecheck = auditRecheckErrors || auditRecheckInvalid;
+const auditSwapSource = process.argv.includes("--audit-swap-source");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plab-mock-"));
 const home = path.join(tmp, "home");
@@ -121,6 +129,8 @@ function respond(name, prompt, opts) {
     case "Analyst":
       // first version hard-codes a home path; only the portability request makes it relative
       w(`${OUT}/04-analysis/run.py`, prompt.includes("可移植性检查") ? "from pathlib import Path\nHERE = Path(__file__).resolve().parent\n" : 'HERE = "/Users/someone/project/04-analysis"\n');
+      w(`${OUT}/04-analysis/tables/summary.json`, '{"r":0.2}\n');
+      w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update('{"r":0.2}\n').digest("hex")}  tables/summary.json\n`);
       return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: `${OUT}/04-analysis`, keyFindings: ["r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
     case "StatRev":
     case "Reviewer":
@@ -145,12 +155,27 @@ function respond(name, prompt, opts) {
     case "Examiner":
       return [{ question: "q", probing: "p" }];
     case "CiteAudit": {
+      if (prompt.startsWith("修订后只复核")) {
+        const requests = JSON.parse(prompt.split("：")[1].split("\n当前初稿")[0]);
+        const updates = requests.map((e) => ({ auditEntryId: e.auditEntryId, action: "updated", entry: { ...e, accuracy: "supported", note: "改写后复核通过" }, note: "亲见修订稿与原文一致" }));
+        if (auditRecheckErrors) return { updates: [updates[0], updates[0], { ...updates[0], auditEntryId: "A9999" }] };
+        if (auditRecheckInvalid) return { updates: updates.map((u) => ({ ...u, entry: { ...u.entry, note: undefined } })) };
+        if (auditRemove) updates[0] = { auditEntryId: requests[0].auditEntryId, action: "removed", entry: null, note: "已读修订稿：第二个引用点的冗余主张已删除，首个引用点仍保留" };
+        return { updates };
+      }
       const entries = ["PMID:34299887", "PMID:35149136", "PMID:27802500"].map((id) => ({
         citation: id, resolvedSource: `${id}（仅摘要级）`, textLevel: "abstract", isPrimary: "primary", sourceLocation: "Abstract",
         accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "保留",
       }));
       entries.push({ citation: "DOI:10.1111/j.2517-6161.1995.tb02031.x", resolvedSource: "DOI:10.1111/j.2517-6161.1995.tb02031.x", textLevel: "none", isPrimary: "primary", sourceLocation: "-", accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "方法学归属" });
+      entries.push(...["5", "6", "7"].map((label) => ({ ...entries[0], citation: `[${label}] 参考文献对应引用点`, resolvedSource: "题录", textLevel: "none" })));
+      // The same reference number must not conceal a changed source; valid aliases still match.
+      entries[2] = { ...entries[2], citation: "[3] 文献对应引用点", resolvedSource: auditSwapSource ? "PMID:34299887" : GOOD[2].id };
+      // Same paper, different claims: a DOI-only merge would overwrite the clean point.
+      entries.push({ ...entries[0], citation: "PMID:34299887 第二个引用点（需改写）", accuracy: "unsupported", textLevel: "fulltext" });
+      entries.push({ ...entries[1], citation: "PMID:35149136 另一个引用点（需改写）", accuracy: "overstated", textLevel: "fulltext" });
       w(`${OUT}/05a-citation-audit.md`, "# 05a\n");
+      // Intentionally wrong aggregate: the workflow must derive problems from entries.
       return { entries, problems: 0, auditPath: `${OUT}/05a-citation-audit.md` };
     }
     case "Librarian":
@@ -231,6 +256,13 @@ check(stages["文献检索"] === "issues", "search stage marked issues when a so
 check(result.notCovered.some((s) => s.includes("提前结束") && s.includes("SemanticScholar")) && result.metrics.deterministic.sourcesTruncated === 1, "a rate-limited, truncated source is disclosed");
 check(result.metrics.deterministic.candidates.raw > result.metrics.deterministic.candidates.deduped, "code-side dedup merged duplicate candidates");
 check(fs.existsSync(outFile("05a-citation-audit.json")), "structured 05a JSON written");
+const auditLedger = JSON.parse(fs.readFileSync(outFile("05a-citation-audit.json"), "utf8"));
+check(auditLedger.entries.length === (auditRemove ? 8 : 9) && result.metrics.citationAudit.entries === (auditRemove ? 8 : 9) && result.metrics.citationAudit.abstractOnly === 3, "targeted citation re-check preserves the full ledger and abstract-level coverage");
+check(auditLedger.entries[0].textLevel === "abstract" && auditLedger.entries[7].auditEntryId !== auditLedger.entries[0].auditEntryId, "two claims citing the same source keep distinct stable keys");
+check(badAuditRecheck ? auditLedger.entries[7].accuracy === "unsupported" && auditLedger.entries[8].accuracy === "overstated" && stages["引文深审"] === "issues" : auditLedger.entries[7].accuracy === "supported" && stages["引文深审"] === "issues", "problem counts come from entries; missing/duplicate/out-of-scope updates never erase problems");
+check(auditLedger.entries.every((e) => fs.readFileSync(outFile("05a-citation-audit.md"), "utf8").includes(e.auditEntryId)), "Markdown and JSON retain every stable citation key");
+if (badAuditRecheck) check((auditLedger.issues?.length ?? 0) >= (auditRecheckInvalid ? 2 : 3) && result.notCovered.some((s) => s.includes("覆盖/复核异常")), "malformed targeted re-check coverage is disclosed");
+if (auditRemove) check(auditLedger.removed.length === 1 && result.metrics.citationAudit.removed === 1 && JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).entries.length === 9, "explicitly removed citation points retain their original judgment and removal evidence");
 check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
 check(stages["分析执行"] === "passed" && !fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "analysis stage passes once the script uses relative paths");
 check(result.metrics.statsReview.pendingMinorNotes === 1 && result.metrics.peerReview.pendingMinorNotes === 1 && result.findings.filter((f) => f.what.includes("minor")).length === 2, "minor review notes are retained until their closure is verified");
@@ -239,6 +271,8 @@ check(stages["终检交付"] === "issues", "delivery cannot pass while review or
 check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes("待关闭审稿意见") && c.prompt.includes('"figuresVerified":false'))), "audit-package and summary writers receive the same unresolved caveats");
 
 if (withTools) {
+  check(auditLedger.issues.some((s) => s.includes("参考文献 3 ")) === auditSwapSource, "reference coverage checks source identity and PMID/DOI aliases, never the number alone");
+  check(result.metrics.deterministic.analysisManifest.listed === 1 && result.metrics.deterministic.analysisManifest.verified === 1 && result.verified.some((s) => s.includes("1/1") && s.includes("不等同于独立重跑")), "artifact counts come from the verified manifest, without claiming a clean rerun");
   const net = JSON.parse(fs.readFileSync(outFile("tool-records/resolve-evidence.json"), "utf8")).records;
   const online = net.some((r) => r.found !== null);
   check(online, "deterministic resolve reached PubMed/Crossref/OpenAlex (network required)");

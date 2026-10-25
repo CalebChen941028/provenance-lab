@@ -20,3 +20,5 @@
 
 **D39 gate discipline**: correct and re-check minor wording/qualifier warnings; retaining a paper does not retain erroneous wording. Material qualifiers unsupported by personally read source text are unsupported. Freeze and deliver design-stage power scripts/seeds/commands/summaries in `03-sap-code/`. statcheck supports Markdown emphasis and intervening CI; zero matches must be disclosed and cannot pass. Disclose unresolved identifiers and unknown PDF licences separately; not downloaded does not mean paywalled.
 Disclose recent minor notes without verified closure; figure revisions without another visual check are not accepted, and delivery status reflects failed gates.
+
+**D40 complete ledgers and reproducibility counts**: assign a stable auditEntryId per citation point; targeted rechecks update requested keys while retaining other points. Disclose missing/duplicate/unknown keys; aggregates never replace details. Generate Markdown/JSON/telemetry from one ledger. Verify the analysis SHA-256 list with `plab manifest`; counts come from listed/verified files, and matching current hashes is not an independent clean rerun.

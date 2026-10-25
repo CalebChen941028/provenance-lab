@@ -52,6 +52,8 @@ Citation selection ranks by **relevance, evidence level, and methodological qual
 
 D39: wording and qualifier warnings are corrected and re-checked without discarding correctable negative evidence. Statistical checks support Markdown/CI and disclose zero matches and unresolved identifiers. Design-stage power scripts ship with the frozen SAP; unknown PDF licences and download failure reasons remain explicit. Disclose recent minor notes without verified closure; figure revisions without another visual check are not accepted, and delivery status reflects failed gates.
 
+Targeted citation rechecks preserve the complete ledger by stable claim keys. `plab manifest` verifies frozen hashes and artifact counts; current snapshot checks and independent reruns are reported separately.
+
 ## Install
 
 ```bash

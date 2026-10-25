@@ -7,6 +7,9 @@ API-verified L1 cases and run only with PLAB_ONLINE=1:
     PLAB_ONLINE=1 python3 -m unittest discover -s tools/tests -v
 """
 import json
+import contextlib
+import hashlib
+import io
 import os
 import sys
 import tempfile
@@ -127,6 +130,100 @@ class Schema(unittest.TestCase):
             self.assertEqual(cols["age"]["missing"], 1)
             self.assertFalse(cols["group"]["potentialIdentifier"])
             self.assertNotIn("person1", json.dumps(s, ensure_ascii=False))
+
+
+class Manifest(unittest.TestCase):
+    def test_counts_only_listed_verified_artifacts_not_claimed_or_present_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            entries = []
+            for i in range(26):
+                name = f"artifact {i}.csv"
+                data = f"private-row-{i}\n".encode()
+                with open(os.path.join(td, name), "wb") as f:
+                    f.write(data)
+                if i < 20:
+                    # Both shasum's text and binary markers are accepted, as is uppercase hex.
+                    marker = " *" if i % 2 else "  "
+                    entries.append(hashlib.sha256(data).hexdigest().upper() + marker + name)
+            manifest = os.path.join(td, "CHECKSUMS.sha256")
+            with open(manifest, "w") as f:
+                f.write("\n".join(entries) + "\n")
+            result = plab.verify_manifest(manifest, td)
+            self.assertEqual(result, {"available": True, "listed": 20, "verified": 20,
+                                      "missing": [], "mismatched": [], "invalid": [], "ok": True})
+            self.assertNotIn("private-row", json.dumps(result))
+
+    def test_missing_and_changed_files_are_not_verified(self):
+        with tempfile.TemporaryDirectory() as td:
+            manifest = os.path.join(td, "CHECKSUMS.sha256")
+            with open(manifest, "w") as f:
+                f.write(hashlib.sha256(b"expected").hexdigest() + "  changed.txt\n" + "0" * 64 + "  missing.txt\n")
+            with open(os.path.join(td, "changed.txt"), "wb") as f:
+                f.write(b"changed")
+            result = plab.verify_manifest(manifest, td)
+            self.assertTrue(result["available"])
+            self.assertEqual((result["listed"], result["verified"]), (2, 0))
+            self.assertEqual(result["missing"], ["missing.txt"])
+            self.assertEqual(result["mismatched"], ["changed.txt"])
+            self.assertFalse(result["ok"])
+
+    def test_missing_empty_invalid_and_duplicate_lists_fail_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            manifest = os.path.join(td, "CHECKSUMS.sha256")
+            self.assertEqual(plab.verify_manifest(manifest, td),
+                             {"available": False, "listed": 0, "verified": 0,
+                              "missing": [], "mismatched": [], "invalid": [], "ok": False})
+            with open(manifest, "w") as f:
+                f.write("\n  \n")
+            empty = plab.verify_manifest(manifest, td)
+            self.assertTrue(empty["available"])
+            self.assertFalse(empty["ok"])
+            self.assertTrue(empty["invalid"])
+            with open(os.path.join(td, "good.txt"), "wb") as f:
+                f.write(b"ok")
+            line = hashlib.sha256(b"ok").hexdigest() + "  "
+            with open(manifest, "w") as f:
+                f.write(line + "good.txt\n" + line + "./good.txt\nnot a SHA-256 line\n")
+            bad = plab.verify_manifest(manifest, td)
+            self.assertEqual((bad["listed"], bad["verified"]), (1, 1))
+            self.assertEqual(len(bad["invalid"]), 2)
+            self.assertFalse(bad["ok"])
+
+    def test_unsafe_paths_and_symlink_escape_are_rejected_without_reading_outside(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as external:
+            secret = os.path.join(external, "secret.csv")
+            with open(secret, "wb") as f:
+                f.write(b"private rows")
+            os.symlink(external, os.path.join(td, "escape"))
+            manifest = os.path.join(td, "CHECKSUMS.sha256")
+            paths = [secret, "../secret.csv", "escape/secret.csv", "C:\\secret.csv", "bad\x00name"]
+            with open(manifest, "w") as f:
+                f.write("\n".join("0" * 64 + "  " + p for p in paths))
+            with patch("builtins.open", wraps=open) as opened:
+                result = plab.verify_manifest(manifest, td)
+            self.assertEqual([os.fspath(call.args[0]) for call in opened.call_args_list], [os.path.realpath(manifest)])
+            self.assertEqual(len(result["invalid"]), 5)
+            self.assertEqual((result["listed"], result["verified"]), (0, 0))
+            self.assertFalse(result["ok"])
+            with patch("builtins.open", wraps=open) as opened:
+                outside_manifest = plab.verify_manifest(secret, td)
+            opened.assert_not_called()
+            self.assertFalse(outside_manifest["available"])
+            self.assertTrue(outside_manifest["invalid"])
+
+    def test_invalid_root_and_cli_missing_manifest_produce_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad_root = plab.verify_manifest(os.path.join(td, "CHECKSUMS"), os.path.join(td, "absent"))
+            self.assertFalse(bad_root["available"])
+            self.assertTrue(bad_root["invalid"])
+            out = os.path.join(td, "result.json")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = plab.main(["manifest", os.path.join(td, "CHECKSUMS"), "--root", td, "--out", out])
+            self.assertEqual(code, 0)
+            with open(out) as f:
+                self.assertEqual(json.loads(stdout.getvalue()), json.load(f))
+            self.assertFalse(json.loads(stdout.getvalue())["available"])
 
 
 class OpenAccess(unittest.TestCase):

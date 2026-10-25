@@ -16,6 +16,7 @@ exit 2 on bad usage):
   dedup      merge duplicate candidate records across sources
   schema     print a data file's schema without printing any row values
   statcheck  recompute p from APA-style test statistics and flag inconsistencies
+  manifest   verify a SHA-256 artifact manifest, counting only files actually hashed
 
 Network etiquette: requests carry a tool User-Agent; set PLAB_MAILTO to join the
 OpenAlex/Crossref polite pools and enable the Crossref Retraction Watch lookup, and
@@ -796,6 +797,86 @@ def statcheck_text(text: str, alpha: float = 0.05) -> dict:
     }
 
 
+# ── artifact manifests ───────────────────────────────────────────────────────
+
+
+def verify_manifest(path: str, root: str) -> dict:
+    """Verify a shasum/hashlib SHA-256 list without exposing any file contents.
+
+    The manifest path follows CLI cwd semantics; entries are relative to root.
+    Both the list and each resolved file must stay within the explicit root.
+    listed counts unique, well-formed, safe paths; verified counts matching hashes.
+    """
+    result = {"available": False, "listed": 0, "verified": 0,
+              "missing": [], "mismatched": [], "invalid": [], "ok": False}
+    base = os.path.realpath(os.path.abspath(root))
+
+    def inside(candidate: str) -> bool:
+        return os.path.commonpath((base, candidate)) == base
+
+    if not os.path.isdir(base):
+        result["invalid"].append({"line": 0, "path": root, "reason": "root is not a directory"})
+        return result
+    manifest = os.path.realpath(os.path.abspath(path))
+    if not inside(manifest):
+        result["invalid"].append({"line": 0, "path": path, "reason": "manifest escapes root"})
+        return result
+    try:
+        with open(manifest, encoding="utf-8-sig") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return result
+    except (OSError, UnicodeError) as exc:
+        result["invalid"].append({"line": 0, "path": path, "reason": type(exc).__name__})
+        return result
+    result["available"] = True
+    seen: set[str] = set()
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", line)
+        if not match:
+            result["invalid"].append({"line": number, "reason": "expected SHA-256, two spaces (or space + *), and a relative path"})
+            continue
+        expected, relative = match.groups()
+        # Do not interpret Windows separators/drive paths or escaped shasum names.
+        if os.path.isabs(relative) or "\\" in relative or re.match(r"^[A-Za-z]:", relative) or ".." in relative.split("/") or any(ord(c) < 32 for c in relative):
+            result["invalid"].append({"line": number, "path": relative, "reason": "path must be relative without .., backslashes or control characters"})
+            continue
+        target = os.path.realpath(os.path.join(base, relative))
+        if not inside(target):
+            result["invalid"].append({"line": number, "path": relative, "reason": "symlink escapes root"})
+            continue
+        if target in seen:
+            result["invalid"].append({"line": number, "path": relative, "reason": "duplicate file path"})
+            continue
+        seen.add(target)
+        result["listed"] += 1
+        try:
+            if not os.path.isfile(target):
+                if not os.path.exists(target):
+                    result["missing"].append(relative)
+                else:
+                    result["invalid"].append({"line": number, "path": relative, "reason": "not a regular file"})
+                continue
+            digest = hashlib.sha256()
+            with open(target, "rb") as f:
+                for block in iter(lambda: f.read(1024 * 1024), b""):
+                    digest.update(block)
+            if digest.hexdigest() == expected.lower():
+                result["verified"] += 1
+            else:
+                result["mismatched"].append(relative)
+        except FileNotFoundError:
+            result["missing"].append(relative)
+        except OSError as exc:
+            result["invalid"].append({"line": number, "path": relative, "reason": type(exc).__name__})
+    if not any(line.strip() for line in lines):
+        result["invalid"].append({"line": 0, "reason": "empty manifest"})
+    result["ok"] = result["listed"] > 0 and result["verified"] == result["listed"] and not any(result[k] for k in ("missing", "mismatched", "invalid"))
+    return result
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -869,6 +950,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--alpha", type=float, default=0.05)
     p.add_argument("--out")
 
+    p = sub.add_parser("manifest", help="verify and count files in a SHA-256 manifest without printing contents")
+    p.add_argument("file", help="SHA-256 manifest path (relative to cwd or absolute, within root)")
+    p.add_argument("--root", required=True, help="directory containing the manifest and all listed artifacts")
+    p.add_argument("--out")
+
     a = ap.parse_args(argv)
     if a.cmd == "resolve":
         items = _read_items(a)
@@ -905,6 +991,8 @@ def main(argv: list[str] | None = None) -> int:
         _emit({"files": [schema_of(x) for x in a.paths]}, a.out)
     elif a.cmd == "statcheck":
         _emit(statcheck_text(_read(a.file), a.alpha), a.out)
+    elif a.cmd == "manifest":
+        _emit(verify_manifest(a.file, a.root), a.out)
     return 0
 
 
