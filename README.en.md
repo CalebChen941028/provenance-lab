@@ -54,6 +54,8 @@ D39: wording and qualifier warnings are corrected and re-checked without discard
 
 Targeted citation rechecks preserve the complete ledger by stable claim keys. `plab manifest` verifies frozen hashes and artifact counts; current snapshot checks and independent reruns are reported separately.
 
+D41 gives all correctable round-2 failures a final targeted correction/recheck, including new errors on the same paper. Source snapshots track analysis/SAP scripts and lockfiles; prior reproducibility records cannot certify a changed final version. Figure roles write only to presentation directories, and revisions receive one further independent visual check. Original-analysis bugs require formal rerun/refreeze. Audit packs and summaries distinguish full-text, abstract-only and no-text coverage. Unchanged sources and matching artifact lists do not establish an independent rerun; real regression effects remain unverified.
+
 ## Install
 
 ```bash

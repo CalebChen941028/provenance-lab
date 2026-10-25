@@ -14,6 +14,11 @@
 //   node ci/mock-run.mjs --no-tools --stale-recheck # out-of-scope re-check IDs cannot pass
 //   node ci/mock-run.mjs --no-tools --audit-recheck-errors # missing/duplicate/unknown citation keys
 //   node ci/mock-run.mjs --no-tools --audit-remove # explicit citation-point removal retains evidence
+//   node ci/mock-run.mjs --no-tools --gate-same-id-error # a new error on a previously flagged paper gets a correction
+//   node ci/mock-run.mjs --no-tools --gate-drop-entry # unapproved ID replacement during correction is disclosed
+//   node ci/mock-run.mjs --no-tools --verify-after-portability # verifyCommand must run after path repairs
+//   node ci/mock-run.mjs --source-drift # post-analysis edits cannot inherit the frozen reproducibility claim
+//   node ci/mock-run.mjs --no-tools --visual-recheck-pass # revised figures get a second independent check
 //   PLAB_WORKFLOW=/path/to/old.dwf.ts node ci/mock-run.mjs # compare a previous workflow
 //   add --keep to leave the scratch workspace on disk for inspection
 import fs from "node:fs";
@@ -38,6 +43,11 @@ const auditRemove = process.argv.includes("--audit-remove");
 const auditRecheckInvalid = process.argv.includes("--audit-recheck-invalid");
 const badAuditRecheck = auditRecheckErrors || auditRecheckInvalid;
 const auditSwapSource = process.argv.includes("--audit-swap-source");
+const gateSameIdError = process.argv.includes("--gate-same-id-error");
+const gateDropEntry = process.argv.includes("--gate-drop-entry");
+const verifyAfterPortability = process.argv.includes("--verify-after-portability");
+const sourceDrift = process.argv.includes("--source-drift");
+const visualRecheckPass = process.argv.includes("--visual-recheck-pass");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plab-mock-"));
 const home = path.join(tmp, "home");
@@ -80,6 +90,10 @@ const logs = [];
 let writerDraftPrompt = "";
 let wordingFixed = false;
 let qualifierFixed = false;
+let sameIdOldFixed = false;
+let sameIdNewFixed = false;
+let visualCheckCount = 0;
+let entryDropped = false;
 
 function respond(name, prompt, opts) {
   calls.push({ name, prompt, system: opts.system ?? "" });
@@ -99,24 +113,55 @@ function respond(name, prompt, opts) {
     case "Synth": {
       // stubborn synthesizer: never removes anything, so only the code backstop can
       const included = [...GOOD, RETRACTED, FABRICATED].map((p) => ({ ...p, status: "clean" }));
-      if (prompt.includes("先修正再复核")) {
+      if (gateDropEntry && prompt.includes("引文核查发现以下失败项")) entryDropped = true;
+      // An ID substitution drops the legitimate paper and adds an unapproved replacement.
+      if (entryDropped) included[1].id = "PMID:11111111";
+      if (gateSameIdError) {
+        if (prompt.includes("引文核查发现以下失败项")) sameIdOldFixed = true;
+        if (prompt.includes("先修正再复核")) {
+          sameIdNewFixed = prompt.includes("新引入国别错误") && prompt.includes("新引入参照组错误");
+          wordingFixed = qualifierFixed = sameIdNewFixed;
+        }
+        // The first repair fixes the requested old issues but introduces different errors
+        // in the same two papers. Identifier equality must not imply error persistence.
+        included[1].finding = sameIdOldFixed ? "旧汇总错误已修正" : "首轮旧汇总错误";
+        included[1].design = sameIdOldFixed ? "145 名塞尔维亚医学生（新引入国别错误）" : "横断调查";
+        included[2].design = sameIdOldFixed ? "旧人群错误已修正" : "首轮旧人群错误";
+        included[2].finding = "高低摄入组互比（新引入参照组错误）";
+        if (sameIdNewFixed) {
+          included[1].design = "145 名波黑医学生（国别修正完成）";
+          included[2].finding = "各摄入组相对非饮用者均无显著差异（阴性比较对象修正完成）";
+        }
+      }
+      if (!gateSameIdError && prompt.includes("先修正再复核")) {
         wordingFixed ||= prompt.includes("汇总 r 写错");
         qualifierFixed ||= prompt.includes("限定语在摘要中不可考");
       }
-      if (wordingFixed) included[1].finding = "已按摘要更正汇总 r";
-      if (qualifierFixed) included[2].finding = "已删除无原文支持的限定语";
+      if (!gateSameIdError && wordingFixed) included[1].finding = "已按摘要更正汇总 r";
+      if (!gateSameIdError && qualifierFixed) included[2].finding = "已删除无原文支持的限定语";
       // on the excision request it also rewrites identifier spelling — the backstop must still match
       if (prompt.includes("按协议从证据表剔除")) for (const p of included) p.id = p.id.replace("PMID:", "PMID: ");
       w(`${OUT}/02-evidence-table.md`, "# 证据表\n" + included.map((p) => `- ${p.id} ${p.title}`).join("\n"));
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
     case "CiteGate":
+      if (gateDropEntry) return prompt.startsWith("修正后的证据表")
+        ? { passed: true, checked: 8, failures: [], failedIds: [] }
+        : { passed: false, checked: 8, failures: [`${GOOD[1].id}：可纠正的转述偏差，请修改后保留`], failedIds: [GOOD[1].id] };
+      if (gateSameIdError) {
+        if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 8, failures: [`${GOOD[1].id}：新引入国别错误，design 应改为波黑医学生；旧汇总错误已修正`, `${GOOD[2].id}：新引入参照组错误，应相对非饮用者报告阴性；旧人群错误已修正`], failedIds: [GOOD[1].id, GOOD[2].id] };
+        if (prompt.includes("已按上轮核查意见修正")) {
+          const corrected = prompt.includes("国别修正完成") && prompt.includes("阴性比较对象修正完成");
+          return { passed: corrected, checked: 2, failures: corrected ? [] : [`${GOOD[1].id}：新引入错误尚未修正`], failedIds: corrected ? [] : [GOOD[1].id] };
+        }
+        return { passed: false, checked: 8, failures: [`${GOOD[1].id}：首轮旧汇总错误`, `${GOOD[2].id}：首轮旧人群错误`], failedIds: [GOOD[1].id, GOOD[2].id] };
+      }
       // round 1: the semantic checker misses both bad identifiers — the deterministic layer must not.
       // round 2: it first flags a wording problem on a legitimate paper (what happened in L-A D37);
       // that entry must be corrected and re-checked, not excised. The targeted re-check passes.
       if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 8, failures: ["PMID:35149136：finding 与摘要不符（汇总 r 写错），建议改写后保留；另参照已正确的 PMID:34299887，后者无需修改", "【限定语警示-不建议剔除】`10.1001/jamapediatrics.2016.2341`：限定语在摘要中不可考，须删除限定语后保留条目", "有一条意见缺少条目标识符，需要人工绑定"], failedIds: ["PMID:35149136"] };
       if (prompt.includes("已按上轮核查意见修正")) {
-        if (staleRecheck) return { passed: false, checked: 2, failures: [`${GOOD[0].id}：复述上一轮旧问题，不属于本批`], failedIds: [GOOD[0].id] };
+        if (staleRecheck) return { passed: false, checked: 2, failures: [`${FABRICATED.id}：复述上一轮旧问题，不属于本批`], failedIds: [FABRICATED.id] };
         const failedIds = [];
         if (!prompt.includes("已按摘要更正汇总 r")) failedIds.push(GOOD[1].id);
         if (!prompt.includes("已删除无原文支持的限定语")) failedIds.push(GOOD[2].id);
@@ -136,9 +181,13 @@ function respond(name, prompt, opts) {
     case "Reviewer":
       return { majorIssues: [], minorIssues: [`${role}: 补充一项口径说明，尚未复核关闭`], verdict: "minor-revision", persistingFromLastRound: 0 };
     case "ArtDir":
+      if (sourceDrift) fs.appendFileSync(path.join(ws, OUT, "04-analysis/run.py"), "# source changed after analysis freeze\n");
       return { polishedDir: `${OUT}/04-analysis/figures-polished`, auditPath: `${OUT}/09-figure-audit.md`, figures: [] };
     case "VisualQA":
-      return { passed: false, issues: ["图中文字过小，需整改；最终版尚未复核"] };
+      visualCheckCount++;
+      return visualRecheckPass && visualCheckCount > 1
+        ? { passed: true, issues: [] }
+        : { passed: false, issues: ["图中文字过小，需整改"] };
     case "Writer": {
       if (prompt.includes("答辩拷问问题清单")) {
         w(`${OUT}/07-rebuttal.md`, "# 回应信\n");
@@ -203,7 +252,9 @@ function respond(name, prompt, opts) {
 const runtime = {
   args: solo
     ? { topic: "L1 植错集", mode: "citation-audit", draftPath: path.join(ROOT, "evaluation/citation-error-cases/seeded-draft.md") }
-    : { topic: "PSU 与青少年睡眠质量（模拟）", integrityMode: "development", teamProfile: "hybrid", figurePolish: "true", language: "中文" },
+    : { topic: "PSU 与青少年睡眠质量（模拟）", integrityMode: "development", teamProfile: "hybrid", figurePolish: "true", language: "中文",
+        ...(verifyAfterPortability ? { verifyCommand: `python3 -c 'from pathlib import Path; assert "/Users/" not in Path("${OUT}/04-analysis/run.py").read_text(); Path("verify-after-portability.ok").write_text("verified")'` } : {}),
+      },
   agent: (name, opts) => ({ ask: async (prompt) => respond(name, prompt, opts) }),
   model: (id) => ({ __model: id }),
   log: (s) => logs.push(s),
@@ -264,11 +315,16 @@ check(auditLedger.entries.every((e) => fs.readFileSync(outFile("05a-citation-aud
 if (badAuditRecheck) check((auditLedger.issues?.length ?? 0) >= (auditRecheckInvalid ? 2 : 3) && result.notCovered.some((s) => s.includes("覆盖/复核异常")), "malformed targeted re-check coverage is disclosed");
 if (auditRemove) check(auditLedger.removed.length === 1 && result.metrics.citationAudit.removed === 1 && JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).entries.length === 9, "explicitly removed citation points retain their original judgment and removal evidence");
 check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
-check(stages["分析执行"] === "passed" && !fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "analysis stage passes once the script uses relative paths");
+check(!fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "the analyst fixes hard-coded paths to use relative source paths");
+check(stages["分析执行"] === (withTools && !sourceDrift ? "passed" : "issues"), "analysis status reflects both portability and the source-integrity boundary");
 check(result.metrics.statsReview.pendingMinorNotes === 1 && result.metrics.peerReview.pendingMinorNotes === 1 && result.findings.filter((f) => f.what.includes("minor")).length === 2, "minor review notes are retained until their closure is verified");
-check(result.notCovered.some((s) => s.includes("图表视觉验收未通过")) && !result.verified.some((s) => s.includes("图表按")), "unverified figure revisions are never claimed as visually accepted");
+check(visualCheckCount === 2, "figure revision is followed by a second independent visual check");
+check(visualRecheckPass
+  ? !result.notCovered.some((s) => s.includes("图表视觉验收未通过")) && result.verified.some((s) => s.includes("图表按"))
+  : result.notCovered.some((s) => s.includes("图表视觉验收未通过")) && !result.verified.some((s) => s.includes("图表按")), "final visual verdict reflects the independent re-check rather than the initial failure");
 check(stages["终检交付"] === "issues", "delivery cannot pass while review or visual issues remain");
-check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes("待关闭审稿意见") && c.prompt.includes('"figuresVerified":false'))), "audit-package and summary writers receive the same unresolved caveats");
+check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes("citationTextLevels") && c.prompt.includes('"abstractOnly":3') && c.prompt.includes('"noText":4') && c.prompt.includes("noText仅查题录"))), "audit-package and summary receive explicit text-level limits instead of full-source claims");
+check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes("待关闭审稿意见") && c.prompt.includes(`"figuresVerified":${visualRecheckPass}`))), "audit-package and summary writers receive the same unresolved caveats");
 
 if (withTools) {
   check(auditLedger.issues.some((s) => s.includes("参考文献 3 ")) === auditSwapSource, "reference coverage checks source identity and PMID/DOI aliases, never the number alone");
@@ -280,7 +336,7 @@ if (withTools) {
     const gate = result.metrics.citationGate;
     check(stages["引文核查"] === "issues" && gate.excluded === 2, `citation gate excludes retracted + fabricated even though the checker passed them (excluded ${gate.excluded})`);
     check(gate.corrected === 2 && wordingFixed && qualifierFixed, "round-2 qualifier in backticks is corrected without misclassifying a mentioned comparator");
-    check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
+    if (!gateSameIdError) check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
     check(result.metrics.deterministic.evidenceResolved.unresolved === 1 && result.notCovered.some((s) => s.includes("arXiv:1907.10569") && s.includes("不能计为确定性核验通过")), "unresolved identifiers are not counted as deterministic verification");
     check(!writerDraftPrompt.includes("PMID:35149136") || !/禁止引用：[^\n]*35149136/.test(writerDraftPrompt), "the corrected paper stays citable");
     const writerSaw = writerDraftPrompt;
@@ -303,11 +359,37 @@ if (withTools) {
   }
 } else {
   check(result.notCovered.some((s) => s.includes("确定性引文终检未能运行")), "missing tools are disclosed in notCovered");
-  check(stages["引文核查"] === (staleRecheck ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
+  check(stages["引文核查"] === (staleRecheck || gateDropEntry ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
   if (staleRecheck) check(result.metrics.citationGate.corrected === 0 && result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("范围外失败条目")), "out-of-scope re-check failures cannot count as corrected entries");
   const lib = calls.find((c) => c.name.startsWith("Librarian"));
   check(!lib.system.includes("下载已由确定性工具完成"), "librarian falls back to downloading itself");
   check(result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.toolFailures === result.metrics.deterministic.toolRuns, "every tool call failed soft");
+}
+
+if (gateDropEntry) {
+  check(entryDropped && result.metrics.citationGate.corrected === 0 && result.metrics.citationGate.excluded === 0 && stages["引文核查"] === "issues", "an unapproved ID substitution cannot count as correction, exclusion, or a passed gate");
+  check(result.findings.some((f) => `${f.what} ${f.evidence}`.includes("35149136") && /未获准|丢失|未授权|未经授权/.test(`${f.what} ${f.evidence}`)) && result.notCovered.some((s) => s.includes("意见未能绑定")), "a legitimate paper silently dropped during correction is disclosed with its identifier");
+  check(result.findings.some((f) => `${f.what} ${f.evidence}`.includes("11111111")) && result.metrics.citationGate.unboundNotes > 0, "the unapproved replacement identifier is also retained as an unresolved gate issue");
+}
+if (verifyAfterPortability) {
+  check(fs.existsSync(path.join(ws, "verify-after-portability.ok")) && result.metrics.reproFailed === false, "verifyCommand checks the repaired portable script rather than a superseded version");
+  check(withTools ? result.verified.some((s) => s.includes("分析复现")) : !result.verified.some((s) => s.includes("分析复现")), "analysis reproduction is claimed only when verification and source-integrity evidence both support it");
+}
+if (gateSameIdError) {
+  check(sameIdOldFixed && sameIdNewFixed && calls.filter((c) => c.name.startsWith("CiteGate")).length === 3, "a new error in an already flagged paper receives a last targeted correction and re-check");
+  check(result.metrics.citationGate.corrected === 2 && result.metrics.citationGate.excluded === (withTools ? 2 : 0), "corrected papers, including negative evidence, are retained despite having failed earlier for different reasons");
+  check(calls.some((c) => c.name.startsWith("CiteGate") && c.prompt.includes("已按上轮核查意见修正") && c.prompt.includes("国别修正完成") && c.prompt.includes("阴性比较对象修正完成")), "the final check sees corrected design and finding fields, including the negative comparison structure");
+}
+const sourceIntegrity = result.metrics.deterministic.sourceIntegrity;
+if (withTools) {
+  check(sourceIntegrity?.available === true && sourceIntegrity.unchanged === !sourceDrift, "source integrity compares the current analysis/SAP source snapshot with the frozen one");
+  if (sourceDrift) {
+    check(sourceIntegrity.changed.some((s) => s.endsWith("run.py")) && result.metrics.reproFailed === true, "post-analysis source drift invalidates the prior reproducibility claim even when the output manifest matches");
+    check(result.notCovered.some((s) => s.includes("源") && /变化|改动|修改/.test(s)), "post-analysis source drift is disclosed in notCovered");
+    check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes('"sourceIntegrity"') && c.prompt.includes('"unchanged":false') && c.prompt.includes("run.py"))), "the audit package and summary receive the changed-source boundary");
+  }
+} else {
+  check(sourceIntegrity?.available === false && result.notCovered.some((s) => s.includes("源") && /未|无法|不可用/.test(s)), "missing source-snapshot tooling is disclosed without claiming source integrity");
 }
 
 const keep = process.argv.includes("--keep");

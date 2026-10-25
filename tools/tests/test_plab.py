@@ -226,6 +226,125 @@ class Manifest(unittest.TestCase):
             self.assertFalse(json.loads(stdout.getvalue())["available"])
 
 
+class SourceSnapshot(unittest.TestCase):
+    @staticmethod
+    def write(root, relative, content=b"private source content"):
+        path = os.path.join(root, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(content)
+        return path
+
+    def test_snapshots_expose_added_removed_changed_materials_and_sorted_hashes(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.write(td, "04-analysis/z.py", b"before")
+            removed = self.write(td, "04-analysis/a.sh")
+            self.write(td, "03-sap-code/dgp.R")
+            first = plab.source_snapshot(td)
+            self.assertTrue(first["available"])
+            self.assertEqual([f["path"] for f in first["files"]],
+                             ["03-sap-code/dgp.R", "04-analysis/a.sh", "04-analysis/z.py"])
+            self.assertEqual(first["files"][-1]["sha256"], hashlib.sha256(b"before").hexdigest())
+            self.write(td, "04-analysis/z.py", b"after")
+            self.write(td, "04-analysis/new.jl")
+            os.unlink(removed)
+            second = plab.source_snapshot(td)
+            before = {f["path"]: f["sha256"] for f in first["files"]}
+            after = {f["path"]: f["sha256"] for f in second["files"]}
+            self.assertEqual(set(after) - set(before), {"04-analysis/new.jl"})
+            self.assertEqual(set(before) - set(after), {"04-analysis/a.sh"})
+            self.assertEqual([p for p in before.keys() & after.keys() if before[p] != after[p]],
+                             ["04-analysis/z.py"])
+            self.assertNotIn("private source content", json.dumps(second))
+
+    def test_skips_presentations_outputs_data_environments_and_unselected_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.write(td, "04-analysis/run.py")
+            for directory in ("venv", ".venv", "__pycache__", "node_modules", "outputs",
+                              "figures", "tables", "data", "figures-polished"):
+                self.write(td, f"04-analysis/{directory}/nested/ignored.py")
+                self.write(td, f"03-sap-code/{directory}/requirements.txt")
+            self.write(td, "papers/helper.py")
+            self.write(td, "04-analysis/README.md")
+            self.write(td, "04-analysis/CHECKSUMS-analysis.sha256")
+            snapshot = plab.source_snapshot(td)
+            self.assertTrue(snapshot["available"])
+            self.assertEqual(snapshot["files"], [{"path": "04-analysis/run.py",
+                              "sha256": hashlib.sha256(b"private source content").hexdigest()}])
+
+    def test_dependency_definitions_and_script_formats_are_included_and_cli_is_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            names = ["run.py", "plot.R", "run.sh", "run.jl", "run.m", "run.ipynb",
+                     "run.js", "run.ts", "run.do", "run.sas", "report.Rmd", "report.qmd",
+                     "requirements.txt", "requirements-dev.txt", "constraints-prod.txt",
+                     "pyproject.toml", "uv.lock", "renv.lock", "Pipfile", "Pipfile.lock",
+                     "poetry.lock", "setup.cfg", "environment.yml", "environment.yaml",
+                     "conda-lock.yml", "conda-lock.yaml", "package.json", "package-lock.json",
+                     "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "DESCRIPTION"]
+            for name in names:
+                self.write(td, "04-analysis/nested/" + name)
+            out = os.path.join(td, "snapshot.json")
+            with contextlib.redirect_stdout(io.StringIO()) as stdout:
+                self.assertEqual(plab.main(["source-snapshot", "--root", td, "--out", out]), 0)
+            result = json.loads(stdout.getvalue())
+            with open(out) as f:
+                self.assertEqual(result, json.load(f))
+            self.assertTrue(result["available"])
+            self.assertEqual([f["path"] for f in result["files"]],
+                             sorted("04-analysis/nested/" + name for name in names))
+            self.assertNotIn("private source content", stdout.getvalue())
+
+    def test_missing_root_required_analysis_and_zero_sources_are_unavailable(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertFalse(plab.source_snapshot(os.path.join(td, "absent"))["available"])
+            self.write(td, "03-sap-code/dgp.py")
+            missing_analysis = plab.source_snapshot(td)
+            self.assertFalse(missing_analysis["available"])
+            self.assertIn("04-analysis: not a directory", missing_analysis["issues"])
+        with tempfile.TemporaryDirectory() as td:
+            os.mkdir(os.path.join(td, "04-analysis"))
+            empty = plab.source_snapshot(td)
+            self.assertFalse(empty["available"])
+            self.assertEqual(empty["issues"], ["no execution materials found"])
+            self.write(td, "04-analysis/run.py")
+            self.assertTrue(plab.source_snapshot(td)["available"])  # SAP is optional.
+
+    def test_symlink_execution_files_and_directories_are_rejected_without_reading_targets(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as outside:
+            good = self.write(td, "04-analysis/good.py")
+            secret = self.write(outside, "secret.py", b"never read this")
+            self.write(outside, "tree/nested.py", b"never read this")
+            os.symlink(good, os.path.join(td, "04-analysis/internal.py"))
+            os.symlink(secret, os.path.join(td, "04-analysis/outside.py"))
+            os.symlink(os.path.join(outside, "tree"), os.path.join(td, "04-analysis/linked-tree"))
+            os.symlink(os.path.join(outside, "absent"), os.path.join(td, "04-analysis/broken.sh"))
+            os.symlink(os.path.join(outside, "tree"), os.path.join(td, "04-analysis/figures-polished"))
+            with patch.object(plab.os, "open", wraps=os.open) as opened:
+                result = plab.source_snapshot(td)
+            self.assertFalse(result["available"])
+            self.assertEqual([f["path"] for f in result["files"]], ["04-analysis/good.py"])
+            self.assertEqual(len(result["issues"]), 4)
+            self.assertEqual([call.args[0] for call in opened.call_args_list], [os.path.realpath(good)])
+            os.symlink(outside, os.path.join(td, "03-sap-code"))
+            self.assertIn("03-sap-code: symlink execution directory", plab.source_snapshot(td)["issues"])
+
+    def test_unsafe_paths_nonregular_files_and_read_failures_are_disclosed(self):
+        with tempfile.TemporaryDirectory() as td:
+            good = self.write(td, "04-analysis/good.py")
+            self.write(td, "04-analysis/unsafe\\path.py")
+            self.write(td, "04-analysis/line\nbreak.sh")
+            os.mkfifo(os.path.join(td, "04-analysis/pipe.py"))
+            result = plab.source_snapshot(td)
+            self.assertFalse(result["available"])
+            self.assertEqual(len(result["issues"]), 3)
+            self.assertIn("04-analysis/pipe.py: not a regular file", result["issues"])
+            with patch.object(plab.os, "open", side_effect=PermissionError):
+                failed = plab.source_snapshot(td)
+            self.assertFalse(failed["available"])
+            self.assertIn("04-analysis/good.py: PermissionError", failed["issues"])
+            self.assertEqual(failed["files"], [])
+
+
 class OpenAccess(unittest.TestCase):
     def test_openalex_license_survives_resolution_and_download(self):
         doi = "10.1234/example"

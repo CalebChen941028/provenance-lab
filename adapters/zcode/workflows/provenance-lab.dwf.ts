@@ -498,6 +498,11 @@ interface PlabOaFetch {
   downloaded: { id: string; file: string; source: string; license: string; title: string; journal: string; year: string; doi: string }[];
   notDownloaded: { id: string; title: string; journal: string; year: string; doi: string; reason: string; doiUrl?: string }[];
 }
+interface PlabSourceSnapshot {
+  available: boolean;
+  files: { path: string; sha256: string }[];
+  issues: string[];
+}
 interface PlabManifest {
   available: boolean;
   listed: number;
@@ -612,7 +617,7 @@ const checkpoints = String(args.checkpoints ?? "").trim();
 const privateLibraryPathArg = String(args.privateLibraryPath ?? "").trim();
 const styleTarget = figureStyleJournal || targetJournals || "Nature";
 const FIGURE_SYSTEM =
-  `你是图表艺术总监，按目标期刊（${styleTarget}）的视觉规范审计并重绘科研图表。规范要点（Nature/Cell 系通用）：色盲友好配色（Okabe-Ito / viridis）；无衬线字体（Arial/Helvetica，成稿图内文字按印刷比例不小于 5-7pt）；矢量优先（PDF/SVG）另存 ≥300-600dpi 位图备份；分面字母规范（Nature 粗体小写 a,b,c；Cell 粗体大写 A,B,C；其他期刊以其指南为准）；版面宽度按期刊栏宽（Nature 单栏 89mm / 双栏 183mm）；去图表垃圾（无底纹网格/3D/多余边框/装饰渐变）；面板间配色字体线型统一；图例自足；坐标轴带单位。${journalGuideUrl ? `先读取该期刊投稿指南并以其为准：${journalGuideUrl}。` : ""}工作方式：逐图审计（问题清单）→重写/新增绘图代码（matplotlib/seaborn 统一 rcParams 样式）→输出规范化图件与逐图审计表（问题→改动→依据）。绝不改动分析结果数值，只改呈现；原图保留不覆盖，规范化版本输出到独立目录。`;
+  `你是图表艺术总监，按目标期刊（${styleTarget}）的视觉规范审计并重绘科研图表。规范要点（Nature/Cell 系通用）：色盲友好配色（Okabe-Ito / viridis）；无衬线字体（Arial/Helvetica，成稿图内文字按印刷比例不小于 5-7pt）；矢量优先（PDF/SVG）另存 ≥300-600dpi 位图备份；分面字母规范（Nature 粗体小写 a,b,c；Cell 粗体大写 A,B,C；其他期刊以其指南为准）；版面宽度按期刊栏宽（Nature 单栏 89mm / 双栏 183mm）；去图表垃圾（无底纹网格/3D/多余边框/装饰渐变）；面板间配色字体线型统一；图例自足；坐标轴带单位。${journalGuideUrl ? `先读取该期刊投稿指南并以其为准：${journalGuideUrl}。` : ""}工作方式：逐图审计（问题清单）→重写/新增绘图代码（matplotlib/seaborn 统一 rcParams 样式）→输出规范化图件与逐图审计表（问题→改动→依据）。绝不改动分析结果数值，只改呈现；原图保留不覆盖，规范化版本与新增绘图脚本只写入 figures-polished/。不得改动原分析/SAP脚本、冻结输出或清单；若发现原分析bug，记录具体代码/图件与影响，交数据分析员按SAP正式修订、重跑并重新冻结，不能偷偷修主脚本后保留旧图与旧复现声明。`;
 
 if (mode !== "pipeline") {
   if (mode === "figure-polish") {
@@ -908,6 +913,16 @@ const keepUnboundNotes = (check: CitationCheck): void => {
   }
   if (!check.passed && check.failures.length === 0 && check.failedIds.length === 0) unresolvedGateNotes.add("核查员返回未通过，但未提供可定位的失败项，须人工确认");
 };
+// 修正只能改字段，未经批准的删条或新增/换ID不能静默改变证据集合。
+const checkEvidenceChanges = (before: EvidenceTable, after: EvidenceTable, allowedRemoval: string[]): void => {
+  const oldKeys = new Set(before.included.map((p) => normKey(p.id)));
+  const newKeys = new Set(after.included.map((p) => normKey(p.id)));
+  const allowed = new Set(allowedRemoval.map(normKey));
+  const missing = before.included.filter((p) => !newKeys.has(normKey(p.id)) && !allowed.has(normKey(p.id))).map((p) => p.id);
+  const added = after.included.filter((p) => !oldKeys.has(normKey(p.id))).map((p) => p.id);
+  if (missing.length > 0) unresolvedGateNotes.add(`证据修正响应未经批准丢失条目 ${missing.join("、")}；未恢复或复核，不能视为合法剔除或修正保留`);
+  if (added.length > 0) unresolvedGateNotes.add(`证据修正响应未经批准新增或更换ID ${added.join("、")}；新条目未完成核查，须人工确认`);
+};
 let citation = withDeterministic(
   await citationChecker.ask<CitationCheck>(`证据表纳入文献：${JSON.stringify(evidence.included)}${gateRecs ? detNoteFor(gateRecs) : ""}\n请逐条核查并返回结果。`),
   evidence.included,
@@ -915,12 +930,14 @@ let citation = withDeterministic(
 );
 keepUnboundNotes(citation);
 let citationFailures: string[] = citation.passed ? [] : citation.failures;
-const round1FailedKeys = new Set(citation.failedIds.map(normKey));
 if (!citation.passed) {
   log(`引文核查发现 ${citation.failures.length} 处失败，退回证据综合员修正`);
+  const beforeCorrection = evidence;
+  const removableHardIds = hardFailures(evidence.included, gateRecs).map((f) => f.id);
   evidence = await synthesizer.ask<EvidenceTable>(
-    `引文核查发现以下失败项，请修正证据表（撤掉或更正条目，更新 ${OUT}/02-evidence-table.md）：\n${citation.failures.join("\n")}`,
+    `引文核查发现以下失败项，请修正证据表（只有确定性不存在/撤稿/关注可撤掉；其余更正题录、design、finding等出错字段并保留原ID，不得静默删条或换ID，更新 ${OUT}/02-evidence-table.md）：\n${citation.failures.join("\n")}`,
   );
+  checkEvidenceChanges(beforeCorrection, evidence, removableHardIds);
   gateRecs = await gateResolve(evidence.included, "resolve-evidence-r2");
   citation = withDeterministic(
     await citationChecker.ask<CitationCheck>(`修正后的证据表：${JSON.stringify(evidence.included)}${gateRecs ? detNoteFor(gateRecs) : ""}\n请复核失败项与抽查其余条目。`),
@@ -931,8 +948,8 @@ if (!citation.passed) {
 }
 keepUnboundNotes(citation);
 // 剔除只针对两类：无从修正的硬失败（标识符不存在/撤稿/关注）与修正后仍失败的条目。
-// 第 2 轮才首次发现的转述问题（finding 与摘要不符）先给一次针对性修正与复核——未经修正就删除可纠正的条目
-// （尤其阴性结果）会让证据库产生选择偏倚（L-A D37 曾因此误删 10 条，含一篇阴性研究）
+// 第 2 轮所有非硬失败统一给一次最后的定向修正与复核；同ID不证明同一问题。
+// L-A D40首轮已改、修正时新引入design/参照组错误，却因ID曾失败直接删掉了阴性研究。
 const failuresAbout = (ids: string[], all: string[]): string[] => {
   if (ids.length === 0) return [];
   const keys = ids.map(normKey);
@@ -943,14 +960,16 @@ let gateExcludedIds: string[] = [];
 let gateCorrectedIds: string[] = [];
 if (!citation.passed) {
   const hardKeys = new Set(hardFailures(evidence.included, gateRecs).map((d) => normKey(d.id)));
-  const persistent = citation.failedIds.filter((id) => hardKeys.has(normKey(id)) || round1FailedKeys.has(normKey(id)));
+  const persistent = citation.failedIds.filter((id) => hardKeys.has(normKey(id)));
   const fresh = citation.failedIds.filter((id) => !persistent.includes(id));
   let freshStill: string[] = [];
   if (fresh.length > 0) {
-    log(`引文核查第 2 轮首次发现 ${fresh.length} 条转述问题，先修正再复核（不直接剔除）`);
+    log(`引文核查第 2 轮有 ${fresh.length} 条非硬失败，统一最后一次修正再复核（同ID也可能是新问题）`);
+    const beforeTargeted = evidence;
     evidence = await synthesizer.ask<EvidenceTable>(
-      `引文核查第 2 轮首次发现以下条目的转述与原文不符（这些条目此前未被指出过，按协议先修正再复核，不剔除）：\n${failuresAbout(fresh, citation.failures).join("\n")}\n请按核查意见逐条改写这些条目的 finding（与摘要一致；阴性结果如实写成阴性，摘要可得就不要写"摘要截断"），更新 ${OUT}/02-evidence-table.md，保留条目本身并返回证据表。`,
+      `引文核查第 2 轮发现以下可纠正问题（同一ID可能是本次新引入的错误；统一最后一次先修正再复核，不剔除）：\n${failuresAbout(fresh, citation.failures).join("\n")}\n请按核查意见更正这些条目的全部出错字段（title/year/design/finding等），不得只改finding；题录与摘要一致，阴性结果、比较对象、限定语须如实保留。更新 ${OUT}/02-evidence-table.md，保留条目本身和原ID（不得删条或换ID）并返回证据表。`,
     );
+    checkEvidenceChanges(beforeTargeted, evidence, []);
     const freshKeys = fresh.map(normKey);
     const freshPapers = evidence.included.filter((p) => freshKeys.includes(normKey(p.id)));
     const presentKeys = new Set(freshPapers.map((p) => normKey(p.id)));
@@ -976,9 +995,11 @@ if (!citation.passed) {
 if (gateExcludedIds.length > 0) {
   // 协议 S2：修正后仍失败与无从修正的条目从证据表剔除并记录——写作员的引用白名单就是证据表，失败条目不能留在里面
   const stillFailed = new Set(gateExcludedIds.map(normKey));
+  const beforeExclusion = evidence;
   evidence = await synthesizer.ask<EvidenceTable>(
     `以下条目经修正后仍未通过引文核查，或属无从修正的硬失败（标识符不存在/撤稿/编辑关注），按协议从证据表剔除：\n${citationFailures.join("\n")}\n对应条目 id：${gateExcludedIds.join("、")}\n请从 ${OUT}/02-evidence-table.md 删除这些条目，在排除记录中逐条注明剔除原因，返回更新后的证据表。`,
   );
+  checkEvidenceChanges(beforeExclusion, evidence, gateExcludedIds);
   // 代码兜底：即使综合员漏删，后续角色拿到的白名单也不含失败条目
   // 按规范化标识符比较：综合员改写证据表时可能改变 id 的书写形式（如 "PMID: 1" 与 "PMID:1"）
   const leftover = evidence.included.filter((p) => stillFailed.has(normKey(p.id))).map((p) => p.id);
@@ -1001,7 +1022,7 @@ const statistician = agent("Stats·统计方法学家", {
     "你是生物统计方法学家。在看到任何结果之前预注册式地制定统计分析计划（SAP）：主要结局与主分析、次要与敏感性分析、效应量指标、α 水平与多重比较校正（Bonferroni/FDR）、缺失数据处理、样本量/效能、前提假设及检验方法、**模型复杂度与过拟合防控**（预注册时必须明确：①参数量与样本量关系——logistic 回归报告 EPV 并遵循 ≥10 惯例、每个调节项/随机效应的 df 支出说明；②随机效应结构的选择依据，禁止事后简化或复杂化搜索；③共线性诊断计划（VIF）；④若需模型比较，预注册 AIC/BIC 使用规则与备选模型集，禁止事后加模型；⑤适用时以交叉验证或训练/验证拆分作为预测性验证的敏感性分析；⑥模拟数据口径须含零假设蒙特卡洛检验 type-I 错误率校准）。心理领域遵循 APA 效应量报告惯例（Cohen's d、η² 等），流行病学报告 RR/OR/HR 及 95% CI。你此刻不知道任何结果——这是刻意设计，用于杜绝 p-hacking。另须产出两份供人工校对的内容：①变量字典——每个进入分析的变量给出 名称/操作定义/数据来源列/变换规则/选取理由（含考虑过但排除的候选变量及原因）；②方法依据表——每个分析方法一条选择依据（为何用它、不用什么替代）；③白话层——每个方法与每个变量附一句不使用术语的白话解释（初高中文化程度可懂，可用生活类比但不失真），让非统计背景研究者能读懂「我们在做什么、为什么」。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。SAP 文首注明：本文件为预注册式内控文档，不等同于注册库预注册；研究需正式预注册时应提交 PROSPERO（系统综述）/OSF（原始研究）等平台并在文中引用注册号。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。SAP 按正式预注册文档格式组织（编号章节：目的与设计/结局与变量/主分析/次要与敏感性/复杂度与过拟合防控/质量控制/版本）。把 SAP 写入文件后返回。",
 });
 const sap = await statistician.ask<StatPlan>(
-  `研究问题：${finalRq.question}\n设计与假设：${finalRq.design}；${finalRq.hypotheses.join("；")}\n数据条件：${dataPath ? `真实数据 ${dataPath}` : "模拟数据演示"}\n证据表要点：${JSON.stringify(evidence.included.slice(0, 8))}\n把 SAP 写入 ${OUT}/03-sap.md；设计阶段若计算样本量、效能或 MC 校准，必须把计算脚本、固定种子、依赖版本、运行命令与汇总输出一并冻结在 ${OUT}/03-sap-code/，在 SAP 中逐值引用路径；不得只留会话临时文件或报告一个无法重算的数字。该目录随审计包交付，后续分析不得覆盖冻结版本。并返回。${langNote}`,
+  `研究问题：${finalRq.question}\n设计与假设：${finalRq.design}；${finalRq.hypotheses.join("；")}\n数据条件：${dataPath ? `真实数据 ${dataPath}` : "模拟数据演示"}\n证据表要点：${JSON.stringify(evidence.included.slice(0, 8))}\n把 SAP 写入 ${OUT}/03-sap.md；设计阶段若计算样本量、效能或 MC 校准，必须把计算脚本、固定种子、依赖版本、运行命令与汇总输出一并冻结在 ${OUT}/03-sap-code/，在 SAP 中逐值引用路径；不得只留会话临时文件或报告一个无法重算的数字。该目录随审计包交付，后续分析不得覆盖冻结版本。runner须自行创建空输出/缓存目录，能从仅有脚本与依赖定义的干净目录启动；不得依赖预存outputs/。并返回。${langNote}`,
 );
 stage("统计计划", "passed");
 record(`SAP 定稿：主分析 ${sap.primaryAnalysis.split("。")[0]}；校正 ${sap.corrections}`);
@@ -1024,9 +1045,19 @@ const analyst = agent("Analyst·数据分析员", {
 const analysis = await analyst.ask<AnalysisResult>(
   `SAP：${JSON.stringify(sap)}\n数据：${dataPath || "无（模拟演示）"}\n输出目录：${OUT}/04-analysis/（脚本、tables/、figures/）。完成后在干净状态下自行重跑一次（先清空缓存与中间产物，或复制到临时目录重跑；脚本须自行创建所需目录，不得依赖手工建好的文件夹），在 04-analysis/CHECKSUMS-analysis.sha256 列出需复现的分析产物相对路径及 SHA-256（不含脚本、日志、虚拟环境与清单自身），确认干净重跑退出码 0 且清单逐项一致。数量只从实际清单统计，不从会话记忆转录；保留清单供代码核对，写进 reproducibility。${langNote}`,
 );
-// 复现关卡：只有 verifyCommand 重跑（含一次修复重试）仍失败才判不通过；未提供命令时沿用分析员自报
+// 复现关卡：命令在路径修复后执行（含一次修复重试）；后续执行材料变化也使旧记录失效。
 let reproFailed = false;
 let reproFailureDetail = "";
+// 可移植性检查（确定性）：脚本写死本机绝对路径时"一键重跑"只在本机成立，退回分析员改为相对路径
+const findAbsPaths = async (): Promise<string[]> => {
+  const r = await world.run("sh", ["-c", "grep -rlE '(/Users/|/home/)[A-Za-z0-9_.-]+/' \"$1\" --include='*.py' --include='*.R' --include='*.r' --include='*.sh' --exclude-dir='*venv*' --exclude-dir=site-packages --exclude-dir=node_modules --exclude-dir=renv --exclude-dir=__pycache__ 2>/dev/null || true", "sh", analysis.outputsPath]);
+  return r.stdout.split("\n").map((x) => x.trim()).filter((x) => x !== "");
+};
+let absPathFiles = await findAbsPaths();
+if (absPathFiles.length > 0) {
+  await analyst.ask(`可移植性检查：以下脚本写死了本机绝对路径，产物目录一移动就无法重跑。请改为相对脚本所在目录（Path(__file__).resolve().parent），改完自行重跑确认退出码 0 且输出不变：\n${absPathFiles.join("\n")}`);
+  absPathFiles = await findAbsPaths();
+}
 if (verifyCommand) {
   const rerun = await world.run("sh", ["-c", verifyCommand]);
   analysis.reproducibility = `${verifyCommand} 重跑退出码 ${rerun.exitCode}${rerun.exitCode === 0 ? "（通过）" : `（失败）：${(rerun.stderr || rerun.stdout).slice(0, 500)}`}`;
@@ -1038,19 +1069,14 @@ if (verifyCommand) {
     analysis.reproducibility = `修复后重跑退出码 ${retry.exitCode}${reproFailed ? `（仍失败）：${reproFailureDetail}` : "（通过）"}`;
   }
 }
-// 可移植性检查（确定性）：脚本写死本机绝对路径时"一键重跑"只在本机成立，退回分析员改为相对路径
-const findAbsPaths = async (): Promise<string[]> => {
-  const r = await world.run("sh", ["-c", "grep -rlE '(/Users/|/home/)[A-Za-z0-9_.-]+/' \"$1\" --include='*.py' --include='*.R' --include='*.r' --include='*.sh' --exclude-dir='*venv*' --exclude-dir=site-packages --exclude-dir=node_modules --exclude-dir=renv --exclude-dir=__pycache__ 2>/dev/null || true", "sh", analysis.outputsPath]);
-  return r.stdout.split("\n").map((x) => x.trim()).filter((x) => x !== "");
-};
-let absPathFiles = await findAbsPaths();
-if (absPathFiles.length > 0) {
-  await analyst.ask(`可移植性检查：以下脚本写死了本机绝对路径，产物目录一移动就无法重跑。请改为相对脚本所在目录（Path(__file__).resolve().parent），改完自行重跑确认退出码 0 且输出不变：\n${absPathFiles.join("\n")}`);
-  absPathFiles = await findAbsPaths();
-}
+// 命令修复重试也可能改脚本，最终再扫描一次，不把新绝对路径漏掉。
+absPathFiles = await findAbsPaths();
 if (absPathFiles.length > 0) analysis.reproducibility += `；可移植性未通过：${absPathFiles.length} 个脚本仍含本机绝对路径`;
 stage("分析执行", reproFailed || absPathFiles.length > 0 ? "issues" : "passed");
 record(`分析完成（${analysis.realData ? "真实数据" : "模拟演示"}）：${analysis.keyFindings[0] ?? "无关键发现"}；复现${verifyCommand ? "（命令关卡）" : "（分析员自报，尚未经统一代码复现）"}：${analysis.reproducibility}`);
+
+// 分析验证结束后保存执行材料指纹；后续修订必须重新建立复现证据，不能沿用旧自报。
+const sourceBaseline = await plab<PlabSourceSnapshot>(["source-snapshot", "--root", OUT, "--out", `${TOOLS_OUT}/sources-before.json`]);
 
 phase("StatReview");
 stage("统计审稿", "in-progress");
@@ -1097,12 +1123,15 @@ if (figurePolish) {
   let figureAudit = await artDirector.ask<{ polishedDir: string; auditPath: string; figures: { name: string; changes: string }[] }>(
     `分析图表目录：${analysis.outputsPath}/figures（及 tables 中配图若有）。规范化版本输出到 ${analysis.outputsPath}/figures-polished/，逐图审计表（问题→改动→依据）写入 ${OUT}/09-figure-audit.md。目标期刊：${finalRq.journals[0] ?? styleTarget}${journalGuideUrl ? `；投稿指南：${journalGuideUrl}` : ""}。${langNote}`,
   );
-  const visualCheck = await figureGate.ask<{ passed: boolean; issues: string[] }>(
+  let visualCheck = await figureGate.ask<{ passed: boolean; issues: string[] }>(
     `规范化目录：${figureAudit.polishedDir}\n原始图目录：${analysis.outputsPath}/figures\n逐张对照验收（可查看 PNG 图像与脚本），返回结论。`,
   );
   if (!visualCheck.passed && visualCheck.issues.length > 0) {
     figureAudit = await artDirector.ask<{ polishedDir: string; auditPath: string; figures: { name: string; changes: string }[] }>(
       `视觉复核未通过，请逐条整改后更新（不覆盖原图）：\n${visualCheck.issues.join("\n")}\n完成后更新 ${OUT}/09-figure-audit.md。`,
+    );
+    visualCheck = await figureGate.ask<{ passed: boolean; issues: string[] }>(
+      `返工后只复核最终规范化图件（一次，不再循环返工）：${figureAudit.polishedDir}\n原始图目录：${analysis.outputsPath}/figures\n逐项核对上轮问题是否关闭，并复查数值/方法标签/图注与原始输出一致；未实际验证的不能判通过。`,
     );
   }
   stage("图表规范化", visualCheck.passed ? "passed" : "issues");
@@ -1254,7 +1283,7 @@ else citationAuditIssues.push("修订稿引用清单提取未能运行，无法�
 await saveAudit(citationAudit, auditDet?.records ?? null, citationAuditIssues, removedAuditEntries);
 let citationAuditPassed = citationAudit.problems === 0 && citationAuditIssues.length === 0;
 stage("引文深审", citationAuditPassed ? "passed" : "issues");
-record(`引文深审：${citationAudit.entries.length} 个引用点逐条比对（溯源/准确性/必要性），${citationAuditPassed ? "全部通过" : `遗留 ${citationAudit.problems} 个问题点、${citationAuditIssues.length} 项覆盖/复核异常`}`);
+record(`引文深审：${citationAudit.entries.length} 个引用点账本（溯源/准确性/必要性），${citationAuditPassed ? "账本未报问题（按可得文本层级；无原文项未核验陈述）" : `遗留 ${citationAudit.problems} 个问题点、${citationAuditIssues.length} 项覆盖/复核异常`}`);
 
 phase("FinalCheck");
 stage("引文终检", "in-progress");
@@ -1337,6 +1366,22 @@ const unresolvedEvidence = (gateRecs ?? []).filter((r) => r.found === null || (r
 stage("文献归档", "passed");
 record(`文献归档：下载 ${papersDownloaded} 篇开放获取 PDF${oaFetch ? "（确定性工具，PMC OA 数据集/OpenAlex OA 位置；许可证未知 ${unknownLicenses} 篇）" : ""}，${papersNotDownloaded} 篇列入待获取清单（08）`);
 
+// 最终产物快照与执行材料状态分别核验；源码没变也不等于独立重跑通过。
+const sourceFinal = await plab<PlabSourceSnapshot>(["source-snapshot", "--root", OUT, "--out", `${TOOLS_OUT}/sources-final.json`]);
+const sourceAvailable = Boolean(sourceBaseline?.available && sourceFinal?.available && sourceBaseline.issues.length === 0 && sourceFinal.issues.length === 0);
+const beforeSources = new Map((sourceBaseline?.files ?? []).map((f) => [f.path, f.sha256]));
+const afterSources = new Map((sourceFinal?.files ?? []).map((f) => [f.path, f.sha256]));
+const changedSources = sourceAvailable ? [...new Set([...beforeSources.keys(), ...afterSources.keys()])].filter((p) => beforeSources.get(p) !== afterSources.get(p)).sort() : [];
+const sourceIntegrity = { available: sourceAvailable, unchanged: sourceAvailable ? changedSources.length === 0 : null, changed: changedSources, issues: [...(sourceBaseline?.issues ?? []), ...(sourceFinal?.issues ?? [])] };
+const sourceChanged = sourceAvailable && changedSources.length > 0;
+if (sourceChanged) {
+  reproFailed = true;
+  analysis.reproducibility += `；后续源文件变化（${changedSources.join("、")}），此前复现记录已失效，最终执行材料未经干净重跑确认`;
+}
+if (sourceIntegrity.unchanged !== true) stage("分析执行", "issues");
+record(sourceChanged ? `执行材料发生变化：${changedSources.join("、")}；旧复现记录失效` : sourceAvailable ? "代码快照核对：所列本地分析/SAP执行材料未变（不证明依赖闭包或独立重跑）" : "源文件快照不可用，后续执行材料是否变化未能核验");
+const citationTextLevels = { fulltext: citationAudit.entries.filter((e) => e.textLevel === "fulltext").length, private: citationAudit.entries.filter((e) => e.textLevel === "private").length, abstractOnly: citationAudit.entries.filter((e) => e.textLevel === "abstract").length, noText: citationAudit.entries.filter((e) => e.textLevel === "none").length };
+
 phase("AuditPack");
 stage("审计包", "in-progress");
 const archivist = agent("Archivist·审计整理员", {
@@ -1367,24 +1412,25 @@ const metricsPartial = {
     candidates: { raw: rawCandidates.length, deduped: candidates.length },
     evidenceResolved: gateRecs ? { checked: gateRecs.length, unresolved: unresolvedEvidence.length, notFound: gateRecs.filter((r) => r.found === false).length, retractedOrConcern: gateRecs.filter((r) => r.status === "retracted" || r.status === "concern").length } : null,
     whitelist: finalCheck.wl ? { references: finalCheck.wl.references, identified: finalCheck.wl.identified, outside: finalCheck.wl.outside.length } : null,
+    sourceIntegrity,
     analysisManifest: analysisManifest ? { available: analysisManifest.available, listed: analysisManifest.listed, verified: analysisManifest.verified, ok: analysisManifest.ok } : null,
     statcheck: finalCheck.sc ? { checked: finalCheck.sc.checked, inconsistent: finalCheck.sc.inconsistent, decisionErrors: finalCheck.sc.decisionErrors } : null,
   },
 };
 const auditPack = await archivist.ask<AuditPack>(
-  `立题：${JSON.stringify({ question: finalRq.question, design: finalRq.design, guideline: finalRq.guideline })}\nSAP（含变量字典与方法依据）：${JSON.stringify(sap)}\n分析（含执行决定）：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, reproducibility: verifyCommand ? analysis.reproducibility : "分析员自报（见99-metrics），不得作为代码核验结论或采信自报文件数" })}\n关卡结论：引文核查 ${gatePassed ? `通过${gateCorrectedIds.length > 0 ? `（${gateCorrectedIds.length} 条转述问题经修正复核保留）` : ""}` : `剔除 ${gateExcludedIds.length} 条：${citationFailures.join("；")}`}；统计审稿 ${statsReview.verdict}；同行评审 ${round} 轮遗留 ${openMajors.length} 项；答辩拷问 ${rebuttal.unanswered.length} 问待补；引文深审 ${citationAudit.entries.length} 条遗留 ${citationAudit.problems} 条（明细文件 ${citationAudit.auditPath}，逐条照抄进 (d)）\n待关闭审稿意见（不能用 major=0 宣称全清）：${JSON.stringify(pendingReviewNotes)}\n其他验收边界：${JSON.stringify({ unboundCitationNotes: [...unresolvedGateNotes], figuresVerified, reproFailed, nonPortableFiles: absPathFiles, unresolvedIdentifiers: unresolvedEvidence.map((r) => r.id), unknownPdfLicenses: unknownLicenses, citationAuditIssues, analysisManifest: metricsPartial.deterministic.analysisManifest, statcheck: metricsPartial.deterministic.statcheck, finalCheckIssues: finalIssues })}；statcheck.checked=0 是未覆盖，不是通过；未确认标识符不得称代码核验通过；图表 figuresVerified=false 不得写验收通过；复现产物数量只用 analysisManifest.listed/verified，null或不可用时写未核验，当前清单匹配不等于独立重跑。\n产物路径：立题书/证据表/SAP/分析输出/初稿/回应信/引文深审明细/文献 PDF（papers/）/文献归档清单（08）均在 ${OUT}/ 下（逐个 ls 核实后写进 README 目录树）；运行指标（99-metrics.json 由流水线代码落盘，你不要写该文件；关卡结论一览可引用这些数字）：${JSON.stringify(metricsPartial)}\n产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。00/05 按编号章节与表格化清单组织。请写出两个文件并返回。${langNote}`,
+  `立题：${JSON.stringify({ question: finalRq.question, design: finalRq.design, guideline: finalRq.guideline })}\nSAP（含变量字典与方法依据）：${JSON.stringify(sap)}\n分析（含执行决定）：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, reproducibility: verifyCommand ? analysis.reproducibility : "分析员自报（见99-metrics），不得作为代码核验结论或采信自报文件数" })}\n关卡结论：引文核查 ${gatePassed ? `通过${gateCorrectedIds.length > 0 ? `（${gateCorrectedIds.length} 条转述问题经修正复核保留）` : ""}` : `剔除 ${gateExcludedIds.length} 条：${citationFailures.join("；")}`}；统计审稿 ${statsReview.verdict}；同行评审 ${round} 轮遗留 ${openMajors.length} 项；答辩拷问 ${rebuttal.unanswered.length} 问待补；引文深审 ${citationAudit.entries.length} 条遗留 ${citationAudit.problems} 条（明细文件 ${citationAudit.auditPath}，逐条照抄进 (d)）\n待关闭审稿意见（不能用 major=0 宣称全清）：${JSON.stringify(pendingReviewNotes)}\n其他验收边界：${JSON.stringify({ unboundCitationNotes: [...unresolvedGateNotes], figuresVerified, reproFailed, nonPortableFiles: absPathFiles, unresolvedIdentifiers: unresolvedEvidence.map((r) => r.id), unknownPdfLicenses: unknownLicenses, citationAuditIssues, citationTextLevels, sourceIntegrity, analysisManifest: metricsPartial.deterministic.analysisManifest, statcheck: metricsPartial.deterministic.statcheck, finalCheckIssues: finalIssues })}；statcheck.checked=0 是未覆盖，不是通过；未确认标识符不得称代码核验通过；图表 figuresVerified=false 不得写验收通过；复现产物数量只用 analysisManifest.listed/verified，null或不可用时写未核验，当前清单匹配不等于独立重跑；sourceIntegrity显示执行材料变化时旧复现记录已失效，不得写成最终版本已复现；摘要级只比对摘要，noText仅查题录，不能称所有引用亲见原文。剔除原因须区分确定性硬失败与转述修正后仍失败，不能统称硬失败。\n产物路径：立题书/证据表/SAP/分析输出/初稿/回应信/引文深审明细/文献 PDF（papers/）/文献归档清单（08）均在 ${OUT}/ 下（逐个 ls 核实后写进 README 目录树）；运行指标（99-metrics.json 由流水线代码落盘，你不要写该文件；关卡结论一览可引用这些数字）：${JSON.stringify(metricsPartial)}\n产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。00/05 按编号章节与表格化清单组织。请写出两个文件并返回。${langNote}`,
 );
 stage("审计包", "passed");
 record(`审计包就绪：${auditPack.manifestPath} 与 ${auditPack.auditPath}`);
 
 phase("Delivery");
-stage("终检交付", failedSources.length === 0 && candidates.length > 0 && gatePassed && citationAuditPassed && openMajors.length === 0 && pendingReviewNotes.length === 0 && rebuttal.unanswered.length === 0 && figuresVerified && !reproFailed && !manifestFailed && absPathFiles.length === 0 && (statsReview.verdict === "accept" || statsReview.verdict === "minor-revision") && statsReview.majorIssues.length === 0 && finalCheck.wl !== null && finalCheck.sc !== null && finalCheck.sc.checked > 0 && finalIssues.length === 0 ? "passed" : "issues");
+stage("终检交付", failedSources.length === 0 && candidates.length > 0 && gatePassed && citationAuditPassed && openMajors.length === 0 && pendingReviewNotes.length === 0 && rebuttal.unanswered.length === 0 && figuresVerified && !reproFailed && sourceIntegrity.unchanged === true && !manifestFailed && absPathFiles.length === 0 && (statsReview.verdict === "accept" || statsReview.verdict === "minor-revision") && statsReview.majorIssues.length === 0 && finalCheck.wl !== null && finalCheck.sc !== null && finalCheck.sc.checked > 0 && finalIssues.length === 0 ? "passed" : "issues");
 const scribe = agent("Scribe·报告撰写", {
   system: `你把整个科研流水线的过程与产物汇总成给研究者看的 Markdown 总结：立题、证据、SAP、分析发现、评审轮次与遗留、投稿前建议。只写有依据的内容，明确区分已验证与未验证。总结开头固定附工具定位声明：工具定位声明：本流水线是科研提效工具，与任何工具一样不保证产出百分之百真实、正确或完整；所有结论、数据、引文与文本必须经用户人工审核，并由具备专业能力的研究者从专业层面取舍与负责；AI 不能替代同行评审、伦理审查与作者的学术责任。语态遵循 ${SKILLS}/natural-voice/SKILL.md：直陈、具体、无AI腔与套话。`,
   ...(teamProfile === "quality" ? {} : lightTier),
 });
 const summaryMd = await scribe.ask<string>(
-  `直接返回 Markdown 文本。${langNote}立题：${JSON.stringify(finalRq)}\n证据：纳入 ${evidence.included.length} 篇\nSAP 路径：${sap.sapPath}\n分析：${JSON.stringify(analysis.keyFindings)}（${analysis.realData ? "真实数据" : "模拟演示"}）\n统计审稿：${statsReview.verdict}\n同行评审 ${round} 轮，遗留 ${openMajors.length} 项\n引文深审：${citationAudit.entries.length} 条逐条比对（溯源/准确性/必要性），${citationAuditPassed ? "全部通过" : `遗留 ${citationAudit.problems} 个问题点、${citationAuditIssues.length} 项覆盖/复核异常`}\n待关闭审稿意见（不能用 major=0 宣称全清）：${JSON.stringify(pendingReviewNotes)}\n其他验收边界：${JSON.stringify({ unboundCitationNotes: [...unresolvedGateNotes], figuresVerified, reproFailed, nonPortableFiles: absPathFiles, unresolvedIdentifiers: unresolvedEvidence.map((r) => r.id), unknownPdfLicenses: unknownLicenses, citationAuditIssues, analysisManifest: metricsPartial.deterministic.analysisManifest, statcheck: metricsPartial.deterministic.statcheck, finalCheckIssues: finalIssues })}；statcheck.checked=0 是未覆盖，不是通过；未确认标识符不得称代码核验通过；图表 figuresVerified=false 不得写验收通过；复现产物数量只用 analysisManifest.listed/verified，null或不可用时写未核验，当前清单匹配不等于独立重跑。\n前情账本：\n${priorFacts()}`,
+  `直接返回 Markdown 文本。${langNote}立题：${JSON.stringify(finalRq)}\n证据：纳入 ${evidence.included.length} 篇\nSAP 路径：${sap.sapPath}\n分析：${JSON.stringify(analysis.keyFindings)}（${analysis.realData ? "真实数据" : "模拟演示"}）\n统计审稿：${statsReview.verdict}\n同行评审 ${round} 轮，遗留 ${openMajors.length} 项\n引文深审：${citationAudit.entries.length} 条账本记录（溯源/准确性/必要性），${citationAuditPassed ? "账本未报问题（按可得文本层级；无原文项未核验陈述）" : `遗留 ${citationAudit.problems} 个问题点、${citationAuditIssues.length} 项覆盖/复核异常`}\n待关闭审稿意见（不能用 major=0 宣称全清）：${JSON.stringify(pendingReviewNotes)}\n其他验收边界：${JSON.stringify({ unboundCitationNotes: [...unresolvedGateNotes], figuresVerified, reproFailed, nonPortableFiles: absPathFiles, unresolvedIdentifiers: unresolvedEvidence.map((r) => r.id), unknownPdfLicenses: unknownLicenses, citationAuditIssues, citationTextLevels, sourceIntegrity, analysisManifest: metricsPartial.deterministic.analysisManifest, statcheck: metricsPartial.deterministic.statcheck, finalCheckIssues: finalIssues })}；statcheck.checked=0 是未覆盖，不是通过；未确认标识符不得称代码核验通过；图表 figuresVerified=false 不得写验收通过；复现产物数量只用 analysisManifest.listed/verified，null或不可用时写未核验，当前清单匹配不等于独立重跑；sourceIntegrity显示执行材料变化时旧复现记录已失效，不得写成最终版本已复现；摘要级只比对摘要，noText仅查题录，不能称所有引用亲见原文。剔除原因须区分确定性硬失败与转述修正后仍失败，不能统称硬失败。\n前情账本：\n${priorFacts()}`,
 );
 await artifact.markdown("summary", summaryMd, { title: "科研流水线总结" });
 await artifact.file("draft", draft.draftPath, { title: "论文初稿", description: `按 ${finalRq.guideline} 规范撰写的 IMRaD 初稿`, primary: true });
@@ -1414,7 +1460,8 @@ for (const e of citationAudit.entries) {
   }
 }
 if (manifestFailed) findings.push({ what: "分析冻结清单未通过", evidence: JSON.stringify(analysisManifest), severity: "high", status: "verified" });
-if (reproFailed) findings.push({ what: "复现关卡未通过：verifyCommand 修复重试后仍失败", evidence: `${verifyCommand}：${reproFailureDetail}`, severity: "high", status: "verified" });
+if (sourceChanged) findings.push({ what: "执行材料变化使先前复现记录失效", evidence: changedSources.join("、"), severity: "high", status: "verified" });
+if (reproFailed && reproFailureDetail) findings.push({ what: "复现关卡未通过：verifyCommand 修复重试后仍失败", evidence: `${verifyCommand}：${reproFailureDetail}`, severity: "high", status: "verified" });
 if (!analysis.realData) findings.push({ what: "分析基于固定种子模拟数据，非真实数据", evidence: "启动时未提供 dataPath，全流程按演示口径执行并已在初稿标注", severity: "medium", status: "verified" });
 const verified: string[] = [
   `立题经方法学评审${rqCritique.hasBlockingIssues ? "并修订" : "一次通过"}`,
@@ -1425,8 +1472,8 @@ const verified: string[] = [
   `同行评审模拟 ${round} 轮（${integrityMode} 模式${adversarial ? "，含对抗挑战" : ""}${fullPanel ? "与总评审" : ""}）`,
   `答辩拷问 ${grill.length} 问（回应 ${rebuttal.answers.length} 条，待补 ${rebuttal.unanswered.length}）`,
   ...(figurePolish && figuresVerified ? [`图表按 ${finalRq.journals[0] ?? styleTarget} 规范审计重绘并经视觉复核（09-figure-audit.md）`] : []),
-  `引文深审：${citationAudit.entries.length} 条逐条比对（溯源到最原始文献、原文位置定位、准确性与必要性判定），${citationAuditPassed ? "全部通过" : `遗留 ${citationAudit.problems} 个问题点、${citationAuditIssues.length} 项覆盖/复核异常`}`,
-  ...(verifyCommand ? [`分析复现：${analysis.reproducibility}`] : []),
+  `引文深审：${citationAudit.entries.length} 条账本记录（全文/私有全文 ${citationTextLevels.fulltext + citationTextLevels.private}，仅摘要 ${citationTextLevels.abstractOnly}，无原文仅题录 ${citationTextLevels.noText}），${citationAuditPassed ? "账本未报问题（按可得文本层级；无原文项未核验陈述）" : `遗留 ${citationAudit.problems} 个问题点、${citationAuditIssues.length} 项覆盖/复核异常`}`,
+  ...(verifyCommand && !reproFailed && sourceIntegrity.unchanged === true ? [`分析复现：${analysis.reproducibility}`] : []),
   ...(analysisManifest?.ok ? [`分析冻结清单：代码核对 ${analysisManifest.verified}/${analysisManifest.listed} 个列出产物的当前 SHA-256 全部匹配；不含未列出文件，不等同于独立重跑`] : []),
   ...(finalCheck.wl ? [`引文终检（代码）：${finalCheck.wl.identified} 条带标识符的参考文献全部核对白名单，${finalCheck.wl.outside.length === 0 ? "无白名单外引用" : `白名单外 ${finalCheck.wl.outside.length} 条见 findings`}`] : []),
   ...(finalCheck.sc && finalCheck.sc.checked > 0 ? [`统计报告一致性（代码复算）：${finalCheck.sc.checked} 处 APA 格式检验结果，${finalCheck.sc.inconsistent === 0 ? "全部自洽" : `${finalCheck.sc.inconsistent} 处不自洽见 findings`}`] : []),
@@ -1434,7 +1481,7 @@ const verified: string[] = [
 const notCovered: string[] = [];
 if (unresolvedGateNotes.size > 0) notCovered.push(`${unresolvedGateNotes.size} 条引文核查意见未能绑定到条目标识符，未自动剔除或宣称修正；详见 findings，须人工核对`);
 if (pendingReviewNotes.length > 0) notCovered.push(`${pendingReviewNotes.length} 条最近审稿 minor 意见尚无逐项关闭复核（可能已在后续成文中处理），不能以 major=0 宣称全部清零；详见 findings`);
-if (figurePolish && !figuresVerified) notCovered.push("图表视觉验收未通过；返工后未再次独立复核，不能宣称最终图件已验收通过，详见 09-figure-audit.md");
+if (figurePolish && !figuresVerified) notCovered.push("图表视觉验收未通过（包含一次返工后的复核机会）；最终仍有遗留或未完成验证，不能宣称最终图件已验收通过，详见 09-figure-audit.md");
 if (truncatedSources.length > 0) notCovered.push(`检索源因限流或请求预算提前结束：${truncatedSources.join("、")}；这些来源的候选可能不完整，可在限流解除后补检`);
 if (failedSources.length > 0) notCovered.push(`检索源失败已降级跳过：${failedSources.join("、")}；证据表未覆盖这些来源，可单独补检`);
 if (!finalCheckRan) notCovered.push("确定性引文终检未能运行（tools/plab.py 缺失或失败），初稿引用 ⊆ 白名单与统计报告一致性未经代码核对，投稿前须人工逐条核对");
@@ -1447,7 +1494,9 @@ if (!analysisManifest?.available) notCovered.push("分析冻结清单不可用�
 if (manifestFailed) notCovered.push("分析冻结清单含缺失、摘要不符或非法条目，见 tool-records/analysis-manifest.json；独立复现尚未闭合");
 if (!verifyCommand) notCovered.push("复现性由分析员自报重跑退出码，未经脚本统一关卡");
 if (absPathFiles.length > 0) notCovered.push(`${absPathFiles.length} 个分析脚本仍写死本机绝对路径（${absPathFiles.join("、")}），换机器或移动目录后须先改路径才能重跑`);
-if (reproFailed) notCovered.push(`复现关卡未通过（${verifyCommand} 修复重试后仍失败），分析结果在修复前不可作为结论依据`);
+if (sourceChanged) notCovered.push(`分析/SAP源文件在先前验证后发生变化（${changedSources.join("、")}），旧复现记录失效，最终执行材料未干净重跑；当前产物清单匹配不能替代此项`);
+if (!sourceAvailable) notCovered.push("源文件快照不可用，本地执行材料的后续变化未经代码核验，不能断言最终源码仍与先前复现记录对应");
+if (reproFailed && reproFailureDetail) notCovered.push(`复现关卡未通过（${verifyCommand} 修复重试后仍失败），分析结果在修复前不可作为结论依据`);
 if (citationAuditIssues.length > 0) notCovered.push(`引文深审 ${citationAuditIssues.length} 项覆盖/复核异常（详见 05a），全量核验尚未闭合：${citationAuditIssues.join("；")}`);
 if (citationAudit.problems > 0) notCovered.push(`引文深审遗留 ${citationAudit.problems} 条问题引用（详见 05a 明细），投稿前需人工复核`);
 const abstractOnlyCount = citationAudit.entries.filter((e) => e.textLevel === "abstract").length;
@@ -1474,7 +1523,7 @@ const metricsWrite = await world.run("sh", ["-c", 'mkdir -p "$1" && printf "%s\\
 if (metricsWrite.exitCode !== 0) log(`99-metrics.json 落盘失败（退出码 ${metricsWrite.exitCode}）：${(metricsWrite.stderr || metricsWrite.stdout).slice(0, 300)}`);
 return {
   metrics: runMetrics,
-  conclusion: `「${shortTopic}」完成科研流水线：立题通过评审，纳入 ${evidence.included.length} 篇证据，分析${analysis.realData ? "基于真实数据" : "为模拟演示"}，统计审稿 ${statsReview.verdict}，同行评审 ${round} 轮、答辩拷问 ${grill.length} 问、引文深审 ${citationAudit.entries.length} 条后${openMajors.length === 0 && pendingReviewNotes.length === 0 && rebuttal.unanswered.length === 0 && citationAuditPassed ? "无上述环节遗留问题" : `遗留 ${openMajors.length + pendingReviewNotes.length + rebuttal.unanswered.length + citationAudit.problems + citationAuditIssues.length} 项（含待关闭复核意见）`}。初稿、回应信、审计包与全部中间产物已交付。`,
+  conclusion: `「${shortTopic}」完成科研流水线：立题通过评审，纳入 ${evidence.included.length} 篇证据，分析${analysis.realData ? "基于真实数据" : "为模拟演示"}，统计审稿 ${statsReview.verdict}，同行评审 ${round} 轮、答辩拷问 ${grill.length} 问、引文深审 ${citationAudit.entries.length} 条后${openMajors.length === 0 && pendingReviewNotes.length === 0 && rebuttal.unanswered.length === 0 && citationAuditPassed && !reproFailed && sourceIntegrity.unchanged === true && figuresVerified ? "无上述环节遗留问题" : `遗留 ${openMajors.length + pendingReviewNotes.length + rebuttal.unanswered.length + citationAudit.problems + citationAuditIssues.length + (reproFailed || sourceIntegrity.unchanged !== true ? 1 : 0) + (figuresVerified ? 0 : 1)} 项（含待关闭复核意见与复现/图表边界）`}。初稿、回应信、审计包与全部中间产物已交付。`,
   findings,
   verified,
   notCovered,

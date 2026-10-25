@@ -17,6 +17,7 @@ exit 2 on bad usage):
   schema     print a data file's schema without printing any row values
   statcheck  recompute p from APA-style test statistics and flag inconsistencies
   manifest   verify a SHA-256 artifact manifest, counting only files actually hashed
+  source-snapshot  hash selected local analysis/SAP execution materials
 
 Network etiquette: requests carry a tool User-Agent; set PLAB_MAILTO to join the
 OpenAlex/Crossref polite pools and enable the Crossref Retraction Watch lookup, and
@@ -35,6 +36,7 @@ import math
 import os
 import re
 import ssl
+import stat
 import sys
 import time
 import unicodedata
@@ -877,6 +879,114 @@ def verify_manifest(path: str, root: str) -> dict:
     return result
 
 
+# ── execution material snapshots ─────────────────────────────────────────────
+
+
+_SOURCE_SUFFIXES = {".py", ".r", ".sh", ".jl", ".m", ".ipynb", ".js", ".ts",
+                    ".do", ".sas", ".rmd", ".qmd"}
+_DEPENDENCY_FILES = {"pyproject.toml", "uv.lock", "renv.lock", "pipfile", "pipfile.lock",
+                     "poetry.lock", "setup.cfg", "environment.yml", "environment.yaml",
+                     "conda-lock.yml", "conda-lock.yaml", "package.json", "package-lock.json",
+                     "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "description"}
+_SOURCE_SKIP_DIRS = {"venv", ".venv", "__pycache__", "node_modules", "outputs", "figures",
+                     "tables", "data", "figures-polished"}
+
+
+def source_snapshot(root: str) -> dict:
+    """Hash selected local execution materials without exposing their contents.
+
+    Fixed scopes are 03-sap-code (optional) and 04-analysis (required). The
+    snapshot is a state comparison input, not proof of a dependency closure or
+    an independent rerun. Any scan/read/safety issue makes it unavailable.
+    """
+    result = {"available": False, "files": [], "issues": []}
+    base = os.path.realpath(os.path.abspath(root))
+    if not os.path.isdir(base):
+        result["issues"].append("root is not a directory")
+        return result
+
+    def relative(path: str) -> str:
+        return os.path.relpath(path, base).replace(os.sep, "/")
+
+    def issue(path: str, reason: str) -> None:
+        result["issues"].append(f"{relative(path)}: {reason}")
+
+    def inside(path: str) -> bool:
+        return os.path.commonpath((base, os.path.realpath(path))) == base
+
+    def selected(name: str) -> bool:
+        name = name.lower()
+        return (os.path.splitext(name)[1] in _SOURCE_SUFFIXES or name in _DEPENDENCY_FILES
+                or (name.startswith(("requirements", "constraints")) and name.endswith(".txt")))
+
+    def scan(directory: str) -> None:
+        if not inside(directory):
+            issue(directory, "directory escapes root")
+            return
+        try:
+            with os.scandir(directory) as entries:
+                children = sorted(entries, key=lambda entry: entry.name)
+        except OSError as exc:
+            issue(directory, type(exc).__name__)
+            return
+        for entry in children:
+            path = entry.path
+            try:
+                # Output/presentation and environment trees are outside this
+                # check, including links with those reserved directory names.
+                if entry.name.lower() in _SOURCE_SKIP_DIRS and (entry.is_dir(follow_symlinks=False) or entry.is_symlink()):
+                    continue
+                if "\\" in entry.name or any(ord(c) < 32 for c in entry.name):
+                    issue(path, "unsafe path name")
+                    continue
+                if entry.is_symlink():
+                    # Never walk a linked tree or hash linked execution files,
+                    # even when the target currently resolves inside the root.
+                    if selected(entry.name) or entry.is_dir():
+                        issue(path, "symlink execution material or directory")
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    scan(path)
+                    continue
+                if not selected(entry.name):
+                    continue
+                if not inside(path):
+                    issue(path, "file escapes root")
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    issue(path, "not a regular file")
+                    continue
+                # O_NOFOLLOW also rejects a last-component link introduced
+                # after the directory listing; only regular files are read.
+                flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                fd = os.open(path, flags)
+                with os.fdopen(fd, "rb") as stream:
+                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                        issue(path, "not a regular file")
+                        continue
+                    digest = hashlib.sha256()
+                    for block in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(block)
+                result["files"].append({"path": relative(path), "sha256": digest.hexdigest()})
+            except OSError as exc:
+                issue(path, type(exc).__name__)
+
+    for scope, required in (("03-sap-code", False), ("04-analysis", True)):
+        path = os.path.join(base, scope)
+        if os.path.islink(path):
+            issue(path, "symlink execution directory")
+        elif not os.path.isdir(path):
+            if required or os.path.lexists(path):
+                issue(path, "not a directory")
+        else:
+            scan(path)
+    result["files"].sort(key=lambda item: item["path"])
+    if not result["files"]:
+        result["issues"].append("no execution materials found")
+    result["available"] = bool(result["files"]) and not result["issues"]
+    return result
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -955,6 +1065,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--root", required=True, help="directory containing the manifest and all listed artifacts")
     p.add_argument("--out")
 
+    p = sub.add_parser("source-snapshot", help="hash selected local analysis/SAP execution materials without printing contents")
+    p.add_argument("--root", required=True, help="artifact root containing 04-analysis and optional 03-sap-code")
+    p.add_argument("--out")
+
     a = ap.parse_args(argv)
     if a.cmd == "resolve":
         items = _read_items(a)
@@ -993,6 +1107,8 @@ def main(argv: list[str] | None = None) -> int:
         _emit(statcheck_text(_read(a.file), a.alpha), a.out)
     elif a.cmd == "manifest":
         _emit(verify_manifest(a.file, a.root), a.out)
+    elif a.cmd == "source-snapshot":
+        _emit(source_snapshot(a.root), a.out)
     return 0
 
 
