@@ -5,7 +5,7 @@
 ## L0 · 内建遥测（每次全流程运行自动产生）
 
 - 每次运行自动落盘 `<产物目录>/99-metrics.json`，并在最终返回的 `metrics` 字段携带同一数据
-- 指标：证据纳入数、引文核查关卡（抽查数/通过/失败/修正保留/剔除/未绑定意见）、统计审稿（结论/轮数/待关闭 minor）、同行评审（轮数/遗留 major/待关闭 minor）、答辩拷问（问数/未答出）、引文深审（引用点数/问题数/覆盖异常/显式删除点/仅摘要级/无原文）、文献归档（已下载/待获取）、复现性（含 reproFailed）、findings/notCovered 总数、模式与档位；`deterministic` 段记录确定性工具层（工具调用与失败数、检索源失败数、去重前后候选数、证据表标识符解析尝试/未确认 unresolved/不存在/撤稿数、白名单终检、statcheck、analysisManifest 的 listed/verified/ok（仅当前清单快照，非独立重跑）以及 sourceIntegrity 的 available/unchanged/changed 与 issues（仅跟踪执行材料的版本变化，不证明独立重跑）结果）
+- 指标：证据纳入数、引文核查关卡（抽查数/通过/失败/修正保留/剔除/待确认 pending/未绑定意见）、统计审稿（结论/轮数/待关闭 minor）、同行评审（轮数/遗留 major/待关闭 minor）、答辩拷问（问数/未答出）、引文深审（引用点数/问题数/覆盖异常/显式删除点/仅摘要级/无原文）、文献归档（已下载/待获取）、复现性（含 reproFailed）、findings/notCovered 总数、模式与档位；`deterministic` 段记录确定性工具层（工具调用与失败数、检索源失败数、去重前后候选数、证据表标识符解析尝试/未确认 unresolved/不存在/撤稿数、白名单终检、statcheck、analysisManifest 的 listed/verified/ok（仅当前清单快照，非独立重跑）以及 sourceIntegrity 的 available/unchanged/changed 与 issues（仅跟踪执行材料的版本变化，不证明独立重跑）结果）
 - 用法：跨运行汇总成基线表；任何优化（提速降 token、人设修改）前后对照，**指标不得恶化**是合入条件之一
 
 ## L1 · 引文深审植错测试集（`citation-error-cases/`）
@@ -44,7 +44,7 @@
 1. L0 指标（99-metrics.json）不劣于上一轮轻量基线——尤其引文关卡通过数、深审问题检出数（L-C 用 L1 的敏感度/特异度）
 2. 逐阶段 token/耗时对比：目标环节下降、其余环节无异常膨胀——`python3 evaluation/run_profile.py "<本轮运行名>" --baseline "<上轮运行名>"` 从本机 ZCode 数据库只读生成逐角色对照表
 3. 产物完整性：00-09、99-metrics、05a JSON 与 tool-records/ 下的确定性结果齐全，学术呈现规范抽检合格
-4. 版本与覆盖边界：初次分析及 verifyCommand/可移植性修复后、统计审稿前记录源码基线，归档结束、审计包前比较分析/SAP脚本与锁文件。增删改使此前复现记录不能确认最终版本；不得以未变或清单匹配冒充独立重跑。第二轮除确定性硬失败外的所有失败（含同标识符新问题）须获最后定向修正复核。图表返工后独立复核一次，仍不过就披露；审计包/总结明确全文、摘要、无原文计数，不以“全部通过”覆盖文本不可得。
+4. 版本与覆盖边界：初次分析及 verifyCommand/可移植性修复后、统计审稿前记录源码基线，归档结束、审计包前比较分析/SAP脚本与锁文件。增删改使此前复现记录不能确认最终版本；不得以未变或清单匹配冒充独立重跑。第二轮除确定性硬失败外的所有失败（含同标识符新问题）须获最后定向修正复核。图表返工后独立复核一次，仍不过就披露；审计包/总结明确全文、摘要、无原文计数，不以“全部通过”覆盖文本不可得。 D42末轮须按G键区分 originalIssues 与 newIssues，新问题或无效返回留pending并禁引。验收02与evidence-final.json的状态一致性，核对组合引用的初审身份绑定；none不能作为新增白名单来源。分析输出目录不得被发布入口文件替代；已见主种子结果的设计顺序须披露。
 
 **离线预检（零 token，每次改动先过）**：`python3 -m unittest discover -s tools/tests`（工具层）、`node ci/typecheck.mjs`（工作流类型）、`node ci/mock-run.mjs`、`--no-stats` 与 `--no-tools`（脚本化 agent + 真实工具的对抗式端到端运行：核查员漏判、检索源崩溃、白名单外引用、p 值不自洽都必须被代码关卡拦下；工具缺失时每个关卡必须回落）、`python3 ci/check_sync.py`（协议副本逐字节一致、中英协议关键锚点齐全）。离线预检不过，不进轻量回归。`--no-stats` 验证零匹配不能判通过；`--no-tools --stale-recheck` 验证范围外失败id不能计修正通过；带工具的 mock 与在线单元测试仍需联网，但不消耗 LLM token。`--no-tools --audit-recheck-errors` 验证缺失/重复/范围外深审键不能抹除原问题，`--no-tools --audit-remove` 验证明示删除须保留原判定与依据。S2 的可纠正警示即使漏填 failedIds 也须修正复核，不能静默遗漏。 D41追加`--no-tools --gate-same-id-error`（同文献新错误）、`--no-tools --gate-drop-entry`（修正时未获准删换ID）、`--verify-after-portability`（核验修好后的版本）、`--source-drift`（清单仍匹配而源码变化须使旧复现失效）与`--no-tools --visual-recheck-pass`（返工后独立再查，按最终结论落状态）。
 

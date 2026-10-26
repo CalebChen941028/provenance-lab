@@ -19,6 +19,14 @@
 //   node ci/mock-run.mjs --no-tools --verify-after-portability # verifyCommand must run after path repairs
 //   node ci/mock-run.mjs --source-drift # post-analysis edits cannot inherit the frozen reproducibility claim
 //   node ci/mock-run.mjs --no-tools --visual-recheck-pass # revised figures get a second independent check
+//   node ci/mock-run.mjs --gate-remove-hard # early removal cannot erase deterministic exclusion history
+//   node ci/mock-run.mjs --no-tools --gate-final-new-error # unresolved new issue stays pending, never silently excluded
+//   node ci/mock-run.mjs --no-tools --gate-persistent-error # an unresolved requested original issue may be excluded
+//   node ci/mock-run.mjs --no-tools --gate-recheck-null # null responses cannot manufacture a passed gate
+//   node ci/mock-run.mjs --no-tools --analysis-file-path # an entry-file path never becomes the analysis directory
+//   node ci/mock-run.mjs --audit-none-source # title-only identity cannot add a source to the whitelist
+//   node ci/mock-run.mjs --audit-group-reference # grouped citations retain their initial source identities
+//   node ci/mock-run.mjs --audit-group-replaced-source # unchanged labels do not cover a replaced source
 //   PLAB_WORKFLOW=/path/to/old.dwf.ts node ci/mock-run.mjs # compare a previous workflow
 //   add --keep to leave the scratch workspace on disk for inspection
 import fs from "node:fs";
@@ -43,6 +51,19 @@ const auditRemove = process.argv.includes("--audit-remove");
 const auditRecheckInvalid = process.argv.includes("--audit-recheck-invalid");
 const badAuditRecheck = auditRecheckErrors || auditRecheckInvalid;
 const auditSwapSource = process.argv.includes("--audit-swap-source");
+const auditNoneSource = process.argv.includes("--audit-none-source");
+const gateRemoveHard = process.argv.includes("--gate-remove-hard");
+const gateFinalNewError = process.argv.includes("--gate-final-new-error");
+const gatePersistentError = process.argv.includes("--gate-persistent-error");
+const gateRecheckInvalid = process.argv.includes("--gate-recheck-invalid");
+const gateRecheckDuplicate = process.argv.includes("--gate-recheck-duplicate");
+const gateRecheckNull = process.argv.includes("--gate-recheck-null");
+const gateRecheckMixed = process.argv.includes("--gate-recheck-mixed");
+const gateRecheckNullCheck = process.argv.includes("--gate-recheck-null-check");
+const badGateRecheck = gateRecheckInvalid || gateRecheckDuplicate || gateRecheckNull || gateRecheckMixed || gateRecheckNullCheck;
+const analysisFilePath = process.argv.includes("--analysis-file-path");
+const auditGroupReference = process.argv.includes("--audit-group-reference") || process.argv.includes("--audit-group-replaced-source");
+const auditGroupReplacedSource = process.argv.includes("--audit-group-replaced-source");
 const gateSameIdError = process.argv.includes("--gate-same-id-error");
 const gateDropEntry = process.argv.includes("--gate-drop-entry");
 const verifyAfterPortability = process.argv.includes("--verify-after-portability");
@@ -85,6 +106,7 @@ const draftV2 = draftV1
   .replace(/5\. Obokata[^\n]*\n6\. Wakefield[^\n]*\n7\./, "5.");
 
 const calls = [];
+const artifactFiles = [];
 const stages = {};
 const logs = [];
 let writerDraftPrompt = "";
@@ -94,6 +116,7 @@ let sameIdOldFixed = false;
 let sameIdNewFixed = false;
 let visualCheckCount = 0;
 let entryDropped = false;
+let hardEntriesRemoved = false;
 
 function respond(name, prompt, opts) {
   calls.push({ name, prompt, system: opts.system ?? "" });
@@ -112,7 +135,9 @@ function respond(name, prompt, opts) {
     }
     case "Synth": {
       // stubborn synthesizer: never removes anything, so only the code backstop can
-      const included = [...GOOD, RETRACTED, FABRICATED].map((p) => ({ ...p, status: "clean" }));
+      let included = [...GOOD, RETRACTED, FABRICATED].map((p) => ({ ...p, status: "clean" }));
+      if (gateRemoveHard && prompt.includes("引文核查发现以下失败项")) hardEntriesRemoved = true;
+      if (hardEntriesRemoved) included = included.filter((p) => ![RETRACTED.id, FABRICATED.id].includes(p.id));
       if (gateDropEntry && prompt.includes("引文核查发现以下失败项")) entryDropped = true;
       // An ID substitution drops the legitimate paper and adds an unapproved replacement.
       if (entryDropped) included[1].id = "PMID:11111111";
@@ -139,12 +164,30 @@ function respond(name, prompt, opts) {
       }
       if (!gateSameIdError && wordingFixed) included[1].finding = "已按摘要更正汇总 r";
       if (!gateSameIdError && qualifierFixed) included[2].finding = "已删除无原文支持的限定语";
-      // on the excision request it also rewrites identifier spelling — the backstop must still match
+      // Legacy workflows request a separate excision rewrite; vary spelling on that comparison path.
       if (prompt.includes("按协议从证据表剔除")) for (const p of included) p.id = p.id.replace("PMID:", "PMID: ");
       w(`${OUT}/02-evidence-table.md`, "# 证据表\n" + included.map((p) => `- ${p.id} ${p.title}`).join("\n"));
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
-    case "CiteGate":
+    case "CiteGate": {
+      if (gateRemoveHard) return { passed: true, checked: prompt.startsWith("修正后的证据表") ? 4 : 6, failures: [], failedIds: [] };
+      if (prompt.includes("逐个 checkId 回传 checks（每键一次）：")) {
+        const requests = JSON.parse(prompt.split("逐个 checkId 回传 checks（每键一次）：")[1].split("\noriginalIssuesResolved")[0]);
+        if (staleRecheck) return { checks: [{ checkId: "G9999", originalIssuesResolved: false, note: "本批以外的旧问题键", newIssues: [] }] };
+        const checks = requests.map((request) => {
+          const isFirst = request.paper.id === GOOD[1].id;
+          const resolved = gatePersistentError && isFirst ? false : gateSameIdError
+            ? prompt.includes("国别修正完成") && prompt.includes("阴性比较对象修正完成")
+            : isFirst ? prompt.includes("已按摘要更正汇总 r") : prompt.includes("已删除无原文支持的限定语");
+          return { checkId: request.checkId, originalIssuesResolved: resolved, note: resolved ? "本次原问题与摘要逐项核对已修正" : "本次送修原问题仍未改正", newIssues: gateFinalNewError && isFirst ? ["design 人群标签首次发现窄化；应为健康照护类大学生"] : [] };
+        });
+        if (gateRecheckNull) return null;
+        if (gateRecheckNullCheck) return { checks: [null] };
+        if (gateRecheckMixed) return { checks: [checks[0], null, ...checks.slice(1)] };
+        if (gateRecheckInvalid) return { checks: checks.map((c) => ({ ...c, note: "" })) };
+        if (gateRecheckDuplicate) return { checks: [...checks, ...checks] };
+        return { checks };
+      }
       if (gateDropEntry) return prompt.startsWith("修正后的证据表")
         ? { passed: true, checked: 8, failures: [], failedIds: [] }
         : { passed: false, checked: 8, failures: [`${GOOD[1].id}：可纠正的转述偏差，请修改后保留`], failedIds: [GOOD[1].id] };
@@ -161,13 +204,15 @@ function respond(name, prompt, opts) {
       // that entry must be corrected and re-checked, not excised. The targeted re-check passes.
       if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 8, failures: ["PMID:35149136：finding 与摘要不符（汇总 r 写错），建议改写后保留；另参照已正确的 PMID:34299887，后者无需修改", "【限定语警示-不建议剔除】`10.1001/jamapediatrics.2016.2341`：限定语在摘要中不可考，须删除限定语后保留条目", "有一条意见缺少条目标识符，需要人工绑定"], failedIds: ["PMID:35149136"] };
       if (prompt.includes("已按上轮核查意见修正")) {
+        if (gateFinalNewError || gatePersistentError) return { passed: false, checked: 2, failures: [`${GOOD[1].id}：${gateFinalNewError ? "原问题已改，但首次发现design人群窄化" : "送修原问题仍未修正"}`], failedIds: [GOOD[1].id] };
         if (staleRecheck) return { passed: false, checked: 2, failures: [`${FABRICATED.id}：复述上一轮旧问题，不属于本批`], failedIds: [FABRICATED.id] };
         const failedIds = [];
         if (!prompt.includes("已按摘要更正汇总 r")) failedIds.push(GOOD[1].id);
         if (!prompt.includes("已删除无原文支持的限定语")) failedIds.push(GOOD[2].id);
         return { passed: failedIds.length === 0, checked: 2, failures: failedIds.map((id) => `${id}：仍未修正`), failedIds };
       }
-      return staleRecheck ? { passed: false, checked: 8, failures: [`${GOOD[0].id}：首轮待更正问题`], failedIds: [GOOD[0].id] } : { passed: true, checked: 8, failures: [], failedIds: [] };
+      return staleRecheck || gateFinalNewError || gatePersistentError || badGateRecheck ? { passed: false, checked: 8, failures: [`${GOOD[0].id}：首轮待更正问题`], failedIds: [GOOD[0].id] } : { passed: true, checked: 8, failures: [], failedIds: [] };
+    }
     case "Stats":
       w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
       return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: `${OUT}/03-sap.md` };
@@ -176,7 +221,8 @@ function respond(name, prompt, opts) {
       w(`${OUT}/04-analysis/run.py`, prompt.includes("可移植性检查") ? "from pathlib import Path\nHERE = Path(__file__).resolve().parent\n" : 'HERE = "/Users/someone/project/04-analysis"\n');
       w(`${OUT}/04-analysis/tables/summary.json`, '{"r":0.2}\n');
       w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update('{"r":0.2}\n').digest("hex")}  tables/summary.json\n`);
-      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: `${OUT}/04-analysis`, keyFindings: ["r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
+      w(`${OUT}/04-analysis/summary_report.md`, "# Analysis output entry\n");
+      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: ["r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
     case "StatRev":
     case "Reviewer":
       return { majorIssues: [], minorIssues: [`${role}: 补充一项口径说明，尚未复核关闭`], verdict: "minor-revision", persistingFromLastRound: 0 };
@@ -193,8 +239,14 @@ function respond(name, prompt, opts) {
         w(`${OUT}/07-rebuttal.md`, "# 回应信\n");
         return { rebuttalPath: `${OUT}/07-rebuttal.md`, answers: ["a"], unanswered: [] };
       }
-      if (prompt.includes("引文终检")) {
-        w(`${OUT}/06-draft.md`, draftV2);
+      if (auditGroupReplacedSource && prompt.includes("引文深审发现")) {
+        w(`${OUT}/06-draft.md`, draftV1.replace("PMID: 27802500", "PMID: 1444724"));
+      } else if (prompt.includes("引文终检")) {
+        let finalDraft = draftV2;
+        if (gateFinalNewError || gatePersistentError || badGateRecheck || staleRecheck) finalDraft = finalDraft.replace(/^2\. Zhang[^\n]*\n/m, "");
+        if (badGateRecheck || staleRecheck) finalDraft = finalDraft.replace(/^3\. Carter[^\n]*\n/m, "");
+        if (auditGroupReplacedSource) finalDraft = finalDraft.replace(/^3\. Carter[^\n]*\n/m, "");
+        w(`${OUT}/06-draft.md`, finalDraft);
       } else if (!fs.existsSync(path.join(ws, OUT, "06-draft.md"))) {
         writerDraftPrompt = prompt;
         w(`${OUT}/06-draft.md`, draftV1);
@@ -216,10 +268,11 @@ function respond(name, prompt, opts) {
         citation: id, resolvedSource: `${id}（仅摘要级）`, textLevel: "abstract", isPrimary: "primary", sourceLocation: "Abstract",
         accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "保留",
       }));
-      entries.push({ citation: "DOI:10.1111/j.2517-6161.1995.tb02031.x", resolvedSource: "DOI:10.1111/j.2517-6161.1995.tb02031.x", textLevel: "none", isPrimary: "primary", sourceLocation: "-", accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "方法学归属" });
+      entries.push({ citation: "DOI:10.1111/j.2517-6161.1995.tb02031.x", resolvedSource: auditNoneSource ? "DOI:10.1111/j.2517-6161.1995.tb02031.x；PMID:1444724（仅题录身份，未取得原文）" : "DOI:10.1111/j.2517-6161.1995.tb02031.x", textLevel: "none", isPrimary: "primary", sourceLocation: "-", accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "方法学归属" });
       entries.push(...["5", "6", "7"].map((label) => ({ ...entries[0], citation: `[${label}] 参考文献对应引用点`, resolvedSource: "题录", textLevel: "none" })));
       // The same reference number must not conceal a changed source; valid aliases still match.
       entries[2] = { ...entries[2], citation: "[3] 文献对应引用点", resolvedSource: auditSwapSource ? "PMID:34299887" : GOOD[2].id };
+      if (auditGroupReference) entries[2] = { ...entries[2], citation: "[2,3] 合并引用点", resolvedSource: "[2] PMID:35149136 摘要；[3] PMC全文（本行没有其PMID或DOI）" };
       // Same paper, different claims: a DOI-only merge would overwrite the clean point.
       entries.push({ ...entries[0], citation: "PMID:34299887 第二个引用点（需改写）", accuracy: "unsupported", textLevel: "fulltext" });
       entries.push({ ...entries[1], citation: "PMID:35149136 另一个引用点（需改写）", accuracy: "overstated", textLevel: "fulltext" });
@@ -262,7 +315,7 @@ const runtime = {
     stages[o.stage] = o.status;
   },
   phase: () => {},
-  artifact: { board: () => {}, markdown: async () => {}, file: async () => {} },
+  artifact: { board: () => {}, markdown: async () => {}, file: async (name, file) => { artifactFiles.push({ name, file }); } },
   world: {
     run: async (cmd, argv) => {
       const r = spawnSync(cmd, argv, { cwd: ws, env: { ...process.env, HOME: home }, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -299,6 +352,7 @@ if (solo) {
   if (!keepSolo) fs.rmSync(tmp, { recursive: true, force: true });
   process.exit(failures.length === 0 ? 0 : 1);
 }
+check(!calls.some((c) => c.name.startsWith("Synth") && c.prompt.includes("按协议从证据表剔除")), "final exclusion is applied by code without asking the synthesizer to rewrite the table again");
 const metricsFile = outFile("99-metrics.json");
 check(fs.existsSync(metricsFile), "99-metrics.json written by code");
 if (fs.existsSync(metricsFile)) check(JSON.stringify(JSON.parse(fs.readFileSync(metricsFile, "utf8"))) === JSON.stringify(result.metrics), "99-metrics.json equals returned metrics");
@@ -327,25 +381,27 @@ check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWit
 check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes("待关闭审稿意见") && c.prompt.includes(`"figuresVerified":${visualRecheckPass}`))), "audit-package and summary writers receive the same unresolved caveats");
 
 if (withTools) {
-  check(auditLedger.issues.some((s) => s.includes("参考文献 3 ")) === auditSwapSource, "reference coverage checks source identity and PMID/DOI aliases, never the number alone");
+  check(auditLedger.issues.some((s) => s.includes("参考文献 3 ")) === (auditSwapSource || auditGroupReplacedSource), "reference coverage checks source identity and PMID/DOI aliases, never the number alone");
   check(result.metrics.deterministic.analysisManifest.listed === 1 && result.metrics.deterministic.analysisManifest.verified === 1 && result.verified.some((s) => s.includes("1/1") && s.includes("不等同于独立重跑")), "artifact counts come from the verified manifest, without claiming a clean rerun");
   const net = JSON.parse(fs.readFileSync(outFile("tool-records/resolve-evidence.json"), "utf8")).records;
   const online = net.some((r) => r.found !== null);
   check(online, "deterministic resolve reached PubMed/Crossref/OpenAlex (network required)");
   if (online) {
     const gate = result.metrics.citationGate;
-    check(stages["引文核查"] === "issues" && gate.excluded === 2, `citation gate excludes retracted + fabricated even though the checker passed them (excluded ${gate.excluded})`);
-    check(gate.corrected === 2 && wordingFixed && qualifierFixed, "round-2 qualifier in backticks is corrected without misclassifying a mentioned comparator");
-    if (!gateSameIdError) check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
+    check(stages["引文核查"] === "issues" && gate.excluded === (gatePersistentError ? 3 : 2), `citation gate excludes retracted + fabricated even though the checker passed them (excluded ${gate.excluded})`);
+    check(gateRemoveHard ? gate.corrected === 0 && !wordingFixed && !qualifierFixed : gate.corrected === (badGateRecheck || staleRecheck ? 0 : gateFinalNewError || gatePersistentError ? 1 : 2) && wordingFixed && qualifierFixed, "semantic corrections are counted only when requested and verified; hard-only removal needs no wording repair");
+    if (!gateSameIdError && !gateRemoveHard) check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
     check(result.metrics.deterministic.evidenceResolved.unresolved === 1 && result.notCovered.some((s) => s.includes("arXiv:1907.10569") && s.includes("不能计为确定性核验通过")), "unresolved identifiers are not counted as deterministic verification");
-    check(!writerDraftPrompt.includes("PMID:35149136") || !/禁止引用：[^\n]*35149136/.test(writerDraftPrompt), "the corrected paper stays citable");
+    const paperMustRemainDenied = gateFinalNewError || gatePersistentError || badGateRecheck || staleRecheck;
+    check(paperMustRemainDenied ? writerDraftPrompt.includes("35149136") && writerDraftPrompt.includes("禁止引用") : !/禁止引用：[^\n]*35149136/.test(writerDraftPrompt), "a corrected paper stays citable unless an explicit pending or exclusion judgment prohibits it");
     const writerSaw = writerDraftPrompt;
     check(writerSaw.includes("PMID:9500320") && writerSaw.includes("PMID:99999999") && writerSaw.includes("禁止引用"), "writer is told the excluded ids are off-limits");
-    check(logs.some((l) => l.includes("综合员未删净的失败条目已由代码剔除") && l.includes("9500320") && l.includes("99999999")), "code backstop removes failed entries even when their id spelling changed");
+    if (!gateRemoveHard) check(logs.some((l) => l.includes("失败条目已由代码剔除") && l.includes("9500320") && l.includes("99999999")), "code applies known failed identifiers to the final evidence exclusions");
     const wl1 = JSON.parse(fs.readFileSync(outFile("tool-records/whitelist.json"), "utf8"));
     const outside1 = wl1.outside.map((r) => r.label).sort().join(",");
-    check(outside1 === "5,6", `first final check flags refs 5 (not whitelisted) and 6 (gate-excluded); got ${outside1}`);
-    check(!wl1.outside.some((r) => r.label === "3"), "PMID cited for a DOI-listed paper is matched via PMID↔DOI mapping");
+    const expectedOutside = `${gateFinalNewError || gatePersistentError || badGateRecheck || staleRecheck ? "2," : ""}${auditGroupReplacedSource || badGateRecheck || staleRecheck ? "3," : ""}5,6`;
+    check(outside1 === expectedOutside, `first final check flags refs 5 (not whitelisted) and 6 (gate-excluded); got ${outside1}`);
+    check(wl1.outside.some((r) => r.label === "3") === (auditGroupReplacedSource || badGateRecheck || staleRecheck), "PMID↔DOI aliases remain allowed unless the source is replaced or explicitly pending");
     check(wl1.unidentified.length === 1, "reference without identifiers counted as unidentified");
     const sc1 = JSON.parse(fs.readFileSync(outFile("tool-records/statcheck.json"), "utf8"));
     check(noStats ? sc1.checked === 0 : sc1.checked === 2 && sc1.inconsistent === 1 && sc1.decisionErrors === 1, "statcheck handles Markdown/CI reports without inventing missing statistics");
@@ -359,11 +415,57 @@ if (withTools) {
   }
 } else {
   check(result.notCovered.some((s) => s.includes("确定性引文终检未能运行")), "missing tools are disclosed in notCovered");
-  check(stages["引文核查"] === (staleRecheck || gateDropEntry ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
+  check(stages["引文核查"] === (staleRecheck || gateDropEntry || gateFinalNewError || gatePersistentError || badGateRecheck ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
   if (staleRecheck) check(result.metrics.citationGate.corrected === 0 && result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("范围外失败条目")), "out-of-scope re-check failures cannot count as corrected entries");
   const lib = calls.find((c) => c.name.startsWith("Librarian"));
   check(!lib.system.includes("下载已由确定性工具完成"), "librarian falls back to downloading itself");
   check(result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.toolFailures === result.metrics.deterministic.toolRuns, "every tool call failed soft");
+}
+
+const evidenceFinalPath = outFile("tool-records/evidence-final.json");
+check(fs.existsSync(evidenceFinalPath) && fs.existsSync(outFile("tool-records/evidence-agent.md")), "canonical evidence JSON and the original agent document are both archived");
+if (fs.existsSync(evidenceFinalPath)) {
+  const evidenceFinal = JSON.parse(fs.readFileSync(evidenceFinalPath, "utf8"));
+  const canonicalMd = fs.readFileSync(outFile("02-evidence-table.md"), "utf8");
+  const normalizeId = (id) => id.trim().toLowerCase().replace(/^(pmid\s*[:：]?\s*|doi\s*[:：]\s*)/, "");
+  const mdIds = [...canonicalMd.matchAll(/^\| ([^|]+) \|[^\n]*$/gm)].map((m) => m[1]).filter((id) => /PMID|DOI|10\.|arXiv/i.test(id)).map(normalizeId).sort();
+  check(JSON.stringify(mdIds) === JSON.stringify(evidenceFinal.included.map((p) => normalizeId(p.id)).sort()), "the final evidence Markdown and JSON contain exactly the same included identifiers");
+  check(evidenceFinal.included.every((p) => !evidenceFinal.excludedIds.some((id) => normalizeId(id) === normalizeId(p.id))), "excluded records cannot remain as included rows in the final evidence artifact");
+}
+if (auditNoneSource && withTools) {
+  const allowed = JSON.parse(fs.readFileSync(outFile("tool-records/allowed-ids.json"), "utf8"));
+  check(auditLedger.entries[3].textLevel === "none" && auditLedger.entries[3].resolvedSource.includes("PMID:1444724") && !allowed.includes("PMID:1444724"), "a source identified only by title without any original text cannot expand the citation whitelist");
+}
+if (gateRemoveHard && withTools) {
+  const evidenceFinal = JSON.parse(fs.readFileSync(evidenceFinalPath, "utf8"));
+  const denied = JSON.parse(fs.readFileSync(outFile("tool-records/deny-ids.json"), "utf8"));
+  const allowed = JSON.parse(fs.readFileSync(outFile("tool-records/allowed-ids.json"), "utf8"));
+  const removedIds = [RETRACTED.id, FABRICATED.id];
+  check(hardEntriesRemoved && calls.filter((c) => c.name.startsWith("CiteGate")).length === 2 && result.metrics.citationGate.excluded === 2 && result.metrics.citationGate.corrected === 0, "early removal of deterministic hard failures preserves both exclusions without inventing a semantic correction round");
+  check(evidenceFinal.included.length === 4 && removedIds.every((id) => evidenceFinal.excludedIds.includes(id) && denied.includes(id) && !allowed.includes(id)), "removed hard failures stay in the canonical exclusion record and deny list, outside the allowed evidence set");
+  check(JSON.parse(fs.readFileSync(outFile("tool-records/resolve-evidence-r2.json"), "utf8")).records.length === 4 && result.metrics.deterministic.evidenceResolved.checked === 4, "the second resolution batch covers only the four remaining records without erasing earlier exclusion history");
+}
+if (gateFinalNewError) {
+  check(result.metrics.citationGate.pending === 1 && result.metrics.citationGate.corrected === 1 && result.metrics.citationGate.excluded === (withTools ? 2 : 0), "a final-round new field error is pending, while the resolved old issue is not misclassified as a soft exclusion");
+  const finalEvidence = fs.existsSync(evidenceFinalPath) ? JSON.parse(fs.readFileSync(evidenceFinalPath, "utf8")) : null;
+  check(finalEvidence?.included.some((p) => p.id === GOOD[1].id) && finalEvidence?.pendingIds.includes(GOOD[1].id) && fs.readFileSync(outFile("02-evidence-table.md"), "utf8").includes("待修正复核，禁止引用"), "pending evidence remains visible in the canonical record with its citation prohibition");
+  check(writerDraftPrompt.includes(GOOD[1].id) && /禁止引用/.test(writerDraftPrompt), "the writer receives the pending identity as prohibited evidence");
+  const statsEvidence = calls.find((c) => c.name.startsWith("Stats")).prompt.split("证据表要点：")[1]?.split("\n")[0];
+  const auditEvidence = calls.find((c) => c.name.startsWith("CiteAudit")).prompt.split("证据表白名单（仅可引用项）：")[1]?.split("\n")[0];
+  check(statsEvidence && auditEvidence && [JSON.parse(statsEvidence), JSON.parse(auditEvidence)].every((papers) => !papers.some((p) => p.id === GOOD[1].id)), "pending evidence is omitted from the SAP and deep-audit citable lists while remaining in the canonical record");
+  if (withTools) check(JSON.parse(fs.readFileSync(outFile("tool-records/deny-ids.json"), "utf8")).includes(GOOD[1].id), "the deterministic final whitelist also denies the unresolved pending paper");
+}
+if (badGateRecheck) check(result.metrics.citationGate.pending === 2 && result.metrics.citationGate.corrected === 0 && result.metrics.citationGate.excluded === (withTools ? 2 : 0), "invalid or duplicate final problem-key responses retain pending evidence rather than fabricating correction or exclusion");
+if (gatePersistentError) check(result.metrics.citationGate.pending === 0 && result.metrics.citationGate.corrected === 1 && result.metrics.citationGate.excluded === (withTools ? 3 : 1), "an explicitly unresolved requested original issue can still be excluded after its targeted correction");
+if (analysisFilePath) {
+  check(["ArtDir", "VisualQA"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes(`${OUT}/04-analysis/figures`) && !c.prompt.includes("summary_report.md/figures"))), "a returned analysis entry file is never treated as the filesystem analysis directory");
+  const outputArtifact = artifactFiles.find((a) => a.name === "outputs");
+  check(outputArtifact && fs.statSync(path.join(ws, outputArtifact.file)).isFile(), "the analysis artifact publishes an existing entry file instead of an analysis directory");
+}
+if (auditGroupReference && withTools) {
+  const bound = auditLedger.entries[2].auditReferences;
+  check(Array.isArray(bound) && bound.some((r) => r.label === "3" && r.ids.includes("PMID:27802500")), "grouped citation coverage retains the original manuscript's concrete source identity");
+  check(auditLedger.issues.some((s) => s.includes("参考文献 3 ")) === auditGroupReplacedSource, "a grouped reference is covered only while its final identity matches the audited original source");
 }
 
 if (gateDropEntry) {

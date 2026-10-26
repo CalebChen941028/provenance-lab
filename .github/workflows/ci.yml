@@ -28,6 +28,14 @@ jobs:
         run: |
           node ci/mock-run.mjs --no-tools
           node ci/mock-run.mjs --no-tools --gate-same-id-error
+          node ci/mock-run.mjs --no-tools --gate-final-new-error
+          node ci/mock-run.mjs --no-tools --gate-persistent-error
+          node ci/mock-run.mjs --no-tools --gate-recheck-invalid
+          node ci/mock-run.mjs --no-tools --gate-recheck-duplicate
+          node ci/mock-run.mjs --no-tools --gate-recheck-null
+          node ci/mock-run.mjs --no-tools --gate-recheck-mixed
+          node ci/mock-run.mjs --no-tools --gate-recheck-null-check
+          node ci/mock-run.mjs --no-tools --analysis-file-path
           node ci/mock-run.mjs --no-tools --gate-drop-entry
           node ci/mock-run.mjs --no-tools --verify-after-portability
           node ci/mock-run.mjs --no-tools --visual-recheck-pass
@@ -57,4 +65,8 @@ jobs:
           node ci/mock-run.mjs --no-stats
           node ci/mock-run.mjs --source-drift
           node ci/mock-run.mjs --audit-swap-source
+          node ci/mock-run.mjs --audit-group-reference
+          node ci/mock-run.mjs --audit-group-replaced-source
+          node ci/mock-run.mjs --gate-remove-hard
+          node ci/mock-run.mjs --audit-none-source
           node ci/mock-run.mjs --solo

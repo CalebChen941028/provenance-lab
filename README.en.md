@@ -56,6 +56,8 @@ Targeted citation rechecks preserve the complete ledger by stable claim keys. `p
 
 D41 gives all correctable round-2 failures a final targeted correction/recheck, including new errors on the same paper. Source snapshots track analysis/SAP scripts and lockfiles; prior reproducibility records cannot certify a changed final version. Figure roles write only to presentation directories, and revisions receive one further independent visual check. Original-analysis bugs require formal rerun/refreeze. Audit packs and summaries distinguish full-text, abstract-only and no-text coverage. Unchanged sources and matching artifact lists do not establish an independent rerun; real regression effects remain unverified.
 
+D42 separates original and newly discovered issues in the final recheck. New issues or invalid rechecks remain pending and denied, without automatic exclusion. Code generates the final evidence table and machine record together. Analysis directories and publication entries are separate; grouped citations follow source identity, and no-text entries cannot authorize new sources. Disclose previously viewed primary-seed results in the SAP and archive old design scripts. Real effects await regression.
+
 ## Install
 
 ```bash

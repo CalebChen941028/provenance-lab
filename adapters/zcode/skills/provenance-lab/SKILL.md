@@ -202,3 +202,5 @@ name: "科研：<主题短标签>"
 **D40 全量账本与复现计数**：深审每个引用点分配稳定 auditEntryId，定向复核按键更新并保留其余点，缺失/重复/范围外键须披露，汇总不能替代明细；Markdown/JSON/遥测由同一账本生成。分析产物 SHA-256 清单以 `plab manifest` 核对，数量取 listed/verified；当前清单匹配不等于独立干净重跑。
 
 **D41 修正与版本边界**：第 2 轮除确定性硬失败外的所有失败均获最后一次定向修正复核，同 PMID/DOI 的新问题也不例外；纠正 title/design/finding 等字段，禁止静默删换文献，最后仍失败才剔除，标识符不存在/撤稿/关注硬关卡不变。分析员初次完成及 verifyCommand/可移植性修复后、统计审稿前记录基线，文献归档结束、审计包前以 `plab source-snapshot` 比较 `03-sap-code/` 与 `04-analysis/` 的脚本/依赖锁文件增删改（排除 `figures-polished/` 等呈现目录）；变化使此前复现记录不再确认最终版本，须正式重跑重冻结，未变也不证明独立重跑，产物 `manifest` 仍只核对当前快照。图表角色只在 `figures-polished/` 新建脚本，不改原分析/SAP；原分析缺陷须正式修订重跑，返工后独立视觉复核一次，仍不过就披露。SAP runner 自建输出目录。审计包与总结显式收到 textLevel 计数；摘要/无原文不可统称亲见全文核验，可纠正转述失败不可叫硬失败。真实 D41 效果待回归验证。
+
+**D42 问题归属与最终记录**：末轮 G 键绑定文献及 originalIssues，分别记录原问题是否修好与 newIssues。原问题已修但首次出现新问题、复核返回无效、修正时未经批准删换ID，均列 pending 并禁止引用，不自动剔除或加轮次；corrected/excluded/pending 分列。02 证据表与 evidence-final.json 由代码同源生成，原综合员版另存 evidence-agent.md，写作只取非pending条目。outputsPath 固定为 04-analysis/，发布入口单列。首审单个/组合编号绑定 auditReferences 身份，复核保留身份，终稿按标识符及别名核对；身份冲突不按编号放行，none 不得授权新白名单来源。设计计算归档旧脚本，不消费正式主种子展示结果；已见结果写入 SAP，不能倒追证明先验性。D42 真实效果待回归。
