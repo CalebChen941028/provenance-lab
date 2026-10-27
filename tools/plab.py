@@ -834,7 +834,9 @@ def verify_manifest(path: str, root: str) -> dict:
     result["available"] = True
     seen: set[str] = set()
     for number, line in enumerate(lines, 1):
-        if not line.strip():
+        # Comment headers are not artifact entries; keep validating every other
+        # line, including malformed entries following an otherwise valid list.
+        if not line.strip() or line.lstrip().startswith("#"):
             continue
         match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", line)
         if not match:
@@ -873,7 +875,7 @@ def verify_manifest(path: str, root: str) -> dict:
             result["missing"].append(relative)
         except OSError as exc:
             result["invalid"].append({"line": number, "path": relative, "reason": type(exc).__name__})
-    if not any(line.strip() for line in lines):
+    if not any(line.strip() and not line.lstrip().startswith("#") for line in lines):
         result["invalid"].append({"line": 0, "reason": "empty manifest"})
     result["ok"] = result["listed"] > 0 and result["verified"] == result["listed"] and not any(result[k] for k in ("missing", "mismatched", "invalid"))
     return result
@@ -890,6 +892,15 @@ _DEPENDENCY_FILES = {"pyproject.toml", "uv.lock", "renv.lock", "pipfile", "pipfi
                      "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "description"}
 _SOURCE_SKIP_DIRS = {"venv", ".venv", "__pycache__", "node_modules", "outputs", "figures",
                      "tables", "data", "figures-polished"}
+
+
+def _is_source_skip_dir(name: str) -> bool:
+    # Named environments such as .venv-calib and venv_313 contain dependencies,
+    # not local execution materials. Require a separator after the venv name so
+    # unrelated source directories such as venvtools remain in the snapshot.
+    lowered = name.lower()
+    return (lowered in _SOURCE_SKIP_DIRS or lowered == "site-packages"
+            or lowered.startswith((".venv-", ".venv_", "venv-", "venv_")))
 
 
 def source_snapshot(root: str) -> dict:
@@ -934,7 +945,7 @@ def source_snapshot(root: str) -> dict:
             try:
                 # Output/presentation and environment trees are outside this
                 # check, including links with those reserved directory names.
-                if entry.name.lower() in _SOURCE_SKIP_DIRS and (entry.is_dir(follow_symlinks=False) or entry.is_symlink()):
+                if _is_source_skip_dir(entry.name) and (entry.is_dir(follow_symlinks=False) or entry.is_symlink()):
                     continue
                 if "\\" in entry.name or any(ord(c) < 32 for c in entry.name):
                     issue(path, "unsafe path name")

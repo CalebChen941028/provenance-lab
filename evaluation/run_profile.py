@@ -34,6 +34,56 @@ def find_run(con: sqlite3.Connection, key: str) -> tuple:
     return row
 
 
+def run_span(con: sqlite3.Connection, run: tuple) -> dict:
+    """Trace cached resumes without summing their cumulative token counters.
+
+    An incomplete chain gives only the wall-clock lower bound visible in this
+    database. Actor/node profiling intentionally remains scoped to the last run.
+    """
+    start = run[4]
+    current = run[0]
+    seen = {current}
+    resumes = 0
+    issues = []
+    while True:
+        row = con.execute("select resumed_from from dwf_run where id = ?", (current,)).fetchone()
+        if not row:
+            issues.append(f"缺少运行记录 {current}")
+            break
+        parent = row[0]
+        if not parent:
+            break
+        if parent in seen:
+            issues.append(f"续接链存在循环：{parent}")
+            break
+        parent_row = con.execute("select time_created from dwf_run where id = ?", (parent,)).fetchone()
+        if not parent_row:
+            issues.append(f"缺少父运行 {parent}")
+            break
+        start = min(start, parent_row[0])
+        seen.add(parent)
+        current = parent
+        resumes += 1
+    return {"minutes": (run[5] - start) / 60000,
+            "lastMinutes": (run[5] - run[4]) / 60000,
+            "resumes": resumes, "issues": issues}
+
+
+def span_text(span: dict) -> str:
+    label = "可追溯墙钟下界" if span["issues"] else "全程墙钟"
+    return (f"{label} {span['minutes']:.2f} 分钟 / 末段 {span['lastMinutes']:.2f} 分钟"
+            f" / 已追溯续接 {span['resumes']} 次")
+
+
+def print_attribution(run: tuple, roles: dict[str, dict], label: str = "") -> None:
+    attributed = sum(role["tokens"] for role in roles.values())
+    difference = run[3] - attributed
+    if difference > 0:
+        print(f"{label}末次运行 ask 节点可归属 {attributed:,} tokens；累计总量中另有 {difference:,} tokens 未能按当前节点归属，不推断角色。")
+    elif difference < 0:
+        print(f"{label}末次运行 ask 节点归属 {attributed:,} tokens，超过累计总量 {-difference:,} tokens；两种记录不一致。")
+
+
 def profile(con: sqlite3.Connection, run_id: str) -> dict[str, dict]:
     rows = con.execute(
         """select a.name, n.stats_json from dwf_node n
@@ -63,16 +113,28 @@ def main() -> int:
         for rid, name, status, tok, t0, t1 in con.execute(
             "select id, name, status, spent_tokens, time_created, time_updated from dwf_run order by time_created desc limit 20"
         ):
-            print(f"{rid}  {status:<10} {tok / 1e6:7.2f}M  {(t1 - t0) / 60000:6.1f} min  {name}")
+            span = run_span(con, (rid, name, status, tok, t0, t1))
+            boundary = f"；{'；'.join(span['issues'])}" if span["issues"] else ""
+            print(f"{rid}  {status:<10} {tok / 1e6:7.2f}M  {span_text(span)}  {name}{boundary}")
         return 0
     run = find_run(con, a.run)
     cur = profile(con, run[0])
     base_run = find_run(con, a.baseline) if a.baseline else None
     base = profile(con, base_run[0]) if base_run else {}
+    span = run_span(con, run)
     print(f"# {run[1]}（{run[0]}）\n")
-    print(f"总量 {run[3] / 1e6:.2f}M tokens / {(run[5] - run[4]) / 60000:.0f} 分钟 / 状态 {run[2]}")
+    print(f"总量 {run[3] / 1e6:.2f}M tokens / {span_text(span)} / 状态 {run[2]}")
+    print("累计 tokens 取末次运行记录，不按续接链相加；角色表只统计末次运行节点。")
+    for issue in span["issues"]:
+        print(f"运行链边界：{issue}；无法确认完整起点。")
+    print_attribution(run, cur)
     if base_run:
-        print(f"基线 {base_run[1]}：{base_run[3] / 1e6:.2f}M tokens / {(base_run[5] - base_run[4]) / 60000:.0f} 分钟（总量变化 {100 * (run[3] - base_run[3]) / base_run[3]:+.1f}%）")
+        base_span = run_span(con, base_run)
+        delta = f"{100 * (run[3] - base_run[3]) / base_run[3]:+.1f}%" if base_run[3] else "基线为0，无法计算"
+        print(f"基线 {base_run[1]}：{base_run[3] / 1e6:.2f}M tokens / {span_text(base_span)}（总量变化 {delta}）")
+        for issue in base_span["issues"]:
+            print(f"基线运行链边界：{issue}；无法确认完整起点。")
+        print_attribution(base_run, base, "基线")
     print()
     head = "| 角色 | ask 次数 | tokens | 工具调用 |" + (" 基线 tokens | 变化 |" if base else "")
     print(head)

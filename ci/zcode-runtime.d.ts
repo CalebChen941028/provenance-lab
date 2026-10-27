@@ -16,3 +16,5 @@ declare const artifact: {
 declare const world: { run(cmd: string, args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> };
 interface Agent { ask<T = string>(prompt: string): Promise<T> }
 declare function agent(name: string, opts: { system: string; model?: ModelRef }): Agent;
+
+declare const files: { read(path: string): Promise<string> };

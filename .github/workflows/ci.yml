@@ -16,7 +16,9 @@ jobs:
         with:
           node-version: "20"
       - name: Tool layer unit tests
-        run: python3 -m unittest discover -s tools/tests -v
+        run: |
+          python3 -m unittest discover -s tools/tests -v
+          python3 -m unittest discover -s evaluation/tests -v
       - name: Cross-carrier sync (D23)
         run: python3 ci/check_sync.py
       - name: Installer lint
@@ -27,6 +29,17 @@ jobs:
       - name: Mock run without tools (every gate must fall back)
         run: |
           node ci/mock-run.mjs --no-tools
+          node ci/mock-run.mjs --no-tools --large-tool-output
+          node ci/mock-run.mjs --no-tools --audit-file
+          node ci/mock-run.mjs --no-tools --audit-file-missing
+          node ci/mock-run.mjs --no-tools --audit-file-malformed
+          node ci/mock-run.mjs --no-tools --audit-file-shape
+          node ci/mock-run.mjs --no-tools --audit-file-null-item
+          node ci/mock-run.mjs --no-tools --audit-bibliography
+          node ci/mock-run.mjs --no-tools --audit-bibliography-unconfirmed
+          node ci/mock-run.mjs --no-tools --audit-bibliography-hard
+          node ci/mock-run.mjs --no-tools --stats-summary-errors
+          node ci/mock-run.mjs --no-tools --stats-summary-persistent
           node ci/mock-run.mjs --no-tools --stats-contradictory
           node ci/mock-run.mjs --no-tools --stats-persistent-major
           node ci/mock-run.mjs --no-tools --grill-context

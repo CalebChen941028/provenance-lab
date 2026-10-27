@@ -133,6 +133,38 @@ class Schema(unittest.TestCase):
 
 
 class Manifest(unittest.TestCase):
+    def test_comment_headers_and_hash_named_files_do_not_count_as_invalid_entries(self):
+        with tempfile.TemporaryDirectory() as td:
+            name = "#artifact.txt"
+            with open(os.path.join(td, name), "wb") as f:
+                f.write(b"ok")
+            manifest = os.path.join(td, "CHECKSUMS.sha256")
+            with open(manifest, "w", encoding="utf-8-sig") as f:
+                f.write("# generated manifest\n  # coverage note\n\n" +
+                        hashlib.sha256(b"ok").hexdigest() + "  " + name + "\n")
+            self.assertEqual(plab.verify_manifest(manifest, td),
+                             {"available": True, "listed": 1, "verified": 1,
+                              "missing": [], "mismatched": [], "invalid": [], "ok": True})
+
+    def test_comments_do_not_pass_empty_or_invalid_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            manifest = os.path.join(td, "CHECKSUMS.sha256")
+            with open(manifest, "w") as f:
+                f.write("# no entries\n  # still no entries\n")
+            empty = plab.verify_manifest(manifest, td)
+            self.assertFalse(empty["ok"])
+            self.assertEqual(empty["invalid"], [{"line": 0, "reason": "empty manifest"}])
+            with open(os.path.join(td, "good.txt"), "wb") as f:
+                f.write(b"ok")
+            digest = hashlib.sha256(b"ok").hexdigest()
+            with open(manifest, "w") as f:
+                f.write("# header\n" + digest + "  good.txt\n" + digest + "  ./good.txt\n" +
+                        "not a SHA-256 line # not a comment\n" + digest + "  ../outside.txt\n")
+            bad = plab.verify_manifest(manifest, td)
+            self.assertEqual((bad["listed"], bad["verified"]), (1, 1))
+            self.assertEqual([x["line"] for x in bad["invalid"]], [3, 4, 5])
+            self.assertFalse(bad["ok"])
+
     def test_counts_only_listed_verified_artifacts_not_claimed_or_present_files(self):
         with tempfile.TemporaryDirectory() as td:
             entries = []
@@ -256,6 +288,21 @@ class SourceSnapshot(unittest.TestCase):
             self.assertEqual([p for p in before.keys() & after.keys() if before[p] != after[p]],
                              ["04-analysis/z.py"])
             self.assertNotIn("private source content", json.dumps(second))
+
+    def test_skips_suffixed_environments_without_hiding_similarly_named_sources(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as outside:
+            for directory in [".venv-calib", ".venv_313", "venv-313", "venv_test", ".VENV-Test", "site-packages"]:
+                self.write(td, "03-sap-code/" + directory + "/dependency.py")
+                self.write(td, "04-analysis/" + directory + "/requirements.txt")
+            os.symlink(outside, os.path.join(td, "04-analysis/.venv-linked"))
+            retained = ["04-analysis/run.py", "04-analysis/venvtools/helper.py",
+                        "04-analysis/.venvtools/helper.py", "04-analysis/site-packages-tools/helper.py",
+                        "04-analysis/.venv-helper.py"]
+            for path in retained:
+                self.write(td, path)
+            snapshot = plab.source_snapshot(td)
+            self.assertTrue(snapshot["available"])
+            self.assertEqual([f["path"] for f in snapshot["files"]], sorted(retained))
 
     def test_skips_presentations_outputs_data_environments_and_unselected_files(self):
         with tempfile.TemporaryDirectory() as td:

@@ -54,7 +54,17 @@ const staleRecheck = process.argv.includes("--stale-recheck");
 const auditRecheckErrors = process.argv.includes("--audit-recheck-errors");
 const auditRemove = process.argv.includes("--audit-remove");
 const auditRecheckInvalid = process.argv.includes("--audit-recheck-invalid");
-const badAuditRecheck = auditRecheckErrors || auditRecheckInvalid;
+const auditFileMissing = process.argv.includes("--audit-file-missing");
+const auditFileMalformed = process.argv.includes("--audit-file-malformed");
+const auditFileShape = process.argv.includes("--audit-file-shape");
+const auditFileNullItem = process.argv.includes("--audit-file-null-item");
+const auditFile = process.argv.includes("--audit-file");
+const auditBibliographyUnconfirmed = process.argv.includes("--audit-bibliography-unconfirmed");
+const auditBibliographyHard = process.argv.includes("--audit-bibliography-hard");
+const auditBibliography = process.argv.includes("--audit-bibliography") || auditBibliographyUnconfirmed || auditBibliographyHard;
+const largeToolOutput = process.argv.includes("--large-tool-output");
+const badAuditFile = auditFileMissing || auditFileMalformed || auditFileShape || auditFileNullItem;
+const badAuditRecheck = auditRecheckErrors || auditRecheckInvalid || badAuditFile;
 const auditSwapSource = process.argv.includes("--audit-swap-source");
 const auditNoneSource = process.argv.includes("--audit-none-source");
 const gateRemoveHard = process.argv.includes("--gate-remove-hard");
@@ -80,7 +90,10 @@ const gateCompoundMissingId = process.argv.includes("--gate-compound-missing-id"
 const gateCompoundId = process.argv.includes("--gate-compound-id") || gateCompoundMissingId;
 const statsContradictory = process.argv.includes("--stats-contradictory");
 const statsPersistentMajor = process.argv.includes("--stats-persistent-major");
-const statsConflict = statsContradictory || statsPersistentMajor;
+const statsSummaryPersistent = process.argv.includes("--stats-summary-persistent");
+const statsSummaryErrors = process.argv.includes("--stats-summary-errors") || statsSummaryPersistent;
+const statsRepairPersistent = statsPersistentMajor || statsSummaryPersistent;
+const statsConflict = statsContradictory || statsPersistentMajor || statsSummaryErrors;
 const grillContext = process.argv.includes("--grill-context");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plab-mock-"));
@@ -93,6 +106,17 @@ if (withTools) {
   fs.copyFileSync(path.join(ROOT, "tools/plab.py"), path.join(dest, "plab.py"));
 } else {
   fs.mkdirSync(home, { recursive: true });
+}
+if (largeToolOutput) {
+  const dest = path.join(home, ".zcode/skills/provenance-lab/tools");
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, "plab.py"), `import sys,json
+from pathlib import Path
+if sys.argv[1] != "source-snapshot": sys.exit(1)
+s=json.dumps({"available":True,"files":[],"padding":"x"*280000,"issues":[]})
+p=Path(sys.argv[sys.argv.index("--out")+1]);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(s)
+print(s)
+`);
 }
 const OUT = "provenance-lab-output";
 const w = (rel, text) => {
@@ -280,9 +304,10 @@ function respond(name, prompt, opts) {
     }
     case "StatRev": {
       statReviewCount++;
-      const majorIssues = statsConflict && (statsPersistentMajor || !statsMetadataFixed) ? [STAT_MAJOR] : [];
+      const majorIssues = statsConflict && !statsSummaryErrors && (statsPersistentMajor || !statsMetadataFixed) ? [STAT_MAJOR] : [];
+      const analysisSummaryIssues = statsSummaryErrors && (statsSummaryPersistent || !statsMetadataFixed) ? [STAT_MAJOR] : [];
       // The intentionally contradictory verdict models the D42 response: severity comes from the issue list.
-      return { majorIssues, minorIssues: [STAT_MINOR], verdict: "minor-revision", persistingFromLastRound: 0 };
+      return { majorIssues, analysisSummaryIssues, minorIssues: [STAT_MINOR], verdict: "minor-revision", persistingFromLastRound: 0 };
     }
     case "Reviewer":
       return { majorIssues: [], minorIssues: [PEER_MINOR], verdict: "minor-revision", persistingFromLastRound: 0 };
@@ -325,14 +350,24 @@ function respond(name, prompt, opts) {
       if (prompt.startsWith("修订后只复核")) {
         const requests = JSON.parse(prompt.split("：")[1].split("\n当前初稿")[0]);
         const updates = requests.map((e) => ({ auditEntryId: e.auditEntryId, action: "updated", entry: { ...e, accuracy: "supported", note: "改写后复核通过" }, note: "亲见修订稿与原文一致" }));
-        if (auditRecheckErrors) return { updates: [updates[0], updates[0], { ...updates[0], auditEntryId: "A9999" }] };
-        if (auditRecheckInvalid) return { updates: updates.map((u) => ({ ...u, entry: { ...u.entry, note: undefined } })) };
+        let response = { updates };
+        if (auditRecheckErrors) response = { updates: [updates[0], updates[0], { ...updates[0], auditEntryId: "A9999" }] };
+        if (auditRecheckInvalid) response = { updates: updates.map((u) => ({ ...u, entry: { ...u.entry, note: undefined } })) };
         if (auditRemove) updates[0] = { auditEntryId: requests[0].auditEntryId, action: "removed", entry: null, note: "已读修订稿：第二个引用点的冗余主张已删除，首个引用点仍保留" };
-        return { updates };
+        if (auditBibliography) for (const u of response.updates) if (u.entry) u.entry.bibliography = auditBibliographyUnconfirmed ? "unknown" : auditBibliographyHard ? "mismatch" : "match";
+        if (prompt.includes("完成后只回复一行")) {
+          const payload = {
+            updated: response.updates.filter((u) => u.action === "updated").map((u) => ({ entry: { ...u.entry, auditEntryId: u.auditEntryId } })),
+            removed: response.updates.filter((u) => u.action === "removed").map((u) => ({ auditEntryId: u.auditEntryId, note: u.note })),
+          };
+          if (!auditFileMissing) w(`${OUT}/tool-records/citation-audit-recheck.json`, auditFileMalformed ? "{broken" : JSON.stringify(auditFileShape ? { updated: "bad", removed: [] } : auditFileNullItem ? { updated: [null, 17, {}], removed: [null] } : payload));
+          return "已写入";
+        }
+        return auditFile ? JSON.stringify(response) : response;
       }
       const entries = ["PMID:34299887", "PMID:35149136", "PMID:27802500"].map((id) => ({
         citation: id, resolvedSource: `${id}（仅摘要级）`, textLevel: "abstract", isPrimary: "primary", sourceLocation: "Abstract",
-        accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "保留",
+        accuracy: "supported", necessity: "necessary", retractionStatus: "clean", bibliography: "match", note: "保留",
       }));
       entries.push({ citation: "DOI:10.1111/j.2517-6161.1995.tb02031.x", resolvedSource: auditNoneSource ? "DOI:10.1111/j.2517-6161.1995.tb02031.x；PMID:1444724（仅题录身份，未取得原文）" : "DOI:10.1111/j.2517-6161.1995.tb02031.x", textLevel: "none", isPrimary: "primary", sourceLocation: "-", accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "方法学归属" });
       entries.push(...["5", "6", "7"].map((label) => ({ ...entries[0], citation: `[${label}] 参考文献对应引用点`, resolvedSource: "题录", textLevel: "none" })));
@@ -342,6 +377,9 @@ function respond(name, prompt, opts) {
       // Same paper, different claims: a DOI-only merge would overwrite the clean point.
       entries.push({ ...entries[0], citation: "PMID:34299887 第二个引用点（需改写）", accuracy: "unsupported", textLevel: "fulltext" });
       entries.push({ ...entries[1], citation: "PMID:35149136 另一个引用点（需改写）", accuracy: "overstated", textLevel: "fulltext" });
+      if (auditBibliography) entries[0] = { ...entries[0], bibliography: "mismatch", ...(auditBibliographyHard ? { retractionStatus: "concern" } : {}), note: "首作者与期刊错误；语义supported不能代替题录修正" };
+      // A stale previous response must not be used if this run's auditor forgets to write.
+      if (auditFileMissing) w(`${OUT}/tool-records/citation-audit-recheck.json`, JSON.stringify({ updated: entries.map((entry, i) => ({ entry: { ...entry, accuracy: "supported", auditEntryId: `A${String(i+1).padStart(4, "0")}` } })), removed: [] }));
       w(`${OUT}/05a-citation-audit.md`, "# 05a\n");
       // Intentionally wrong aggregate: the workflow must derive problems from entries.
       return { entries, problems: 0, auditPath: `${OUT}/05a-citation-audit.md` };
@@ -383,16 +421,18 @@ const runtime = {
   },
   phase: () => {},
   artifact: { board: () => {}, markdown: async () => {}, file: async (name, file) => { artifactFiles.push({ name, file }); } },
+  files: { read: async (p) => fs.readFileSync(path.join(ws, p), "utf8") },
   world: {
     run: async (cmd, argv) => {
       const r = spawnSync(cmd, argv, { cwd: ws, env: { ...process.env, HOME: home }, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+      if (Buffer.byteLength(r.stdout ?? "") > 262144 || Buffer.byteLength(r.stderr ?? "") > 262144) throw new Error("world.run output exceeds 256KiB cap");
       return { exitCode: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     },
   },
 };
 
 const src = fs.readFileSync(WF, "utf8");
-const wrapped = `export default async function __wf({ args, agent, model, log, report, phase, artifact, world }) {\n${src}\n}`;
+const wrapped = `export default async function __wf({ args, agent, model, log, report, phase, artifact, world, files }) {\n${src}\n}`;
 const js = ts.transpileModule(wrapped, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const modPath = path.join(tmp, "wf.mjs");
 fs.writeFileSync(modPath, js);
@@ -433,7 +473,7 @@ check(auditLedger.entries.length === (auditRemove ? 8 : 9) && result.metrics.cit
 check(auditLedger.entries[0].textLevel === "abstract" && auditLedger.entries[7].auditEntryId !== auditLedger.entries[0].auditEntryId, "two claims citing the same source keep distinct stable keys");
 check(badAuditRecheck ? auditLedger.entries[7].accuracy === "unsupported" && auditLedger.entries[8].accuracy === "overstated" && stages["引文深审"] === "issues" : auditLedger.entries[7].accuracy === "supported" && stages["引文深审"] === "issues", "problem counts come from entries; missing/duplicate/out-of-scope updates never erase problems");
 check(auditLedger.entries.every((e) => fs.readFileSync(outFile("05a-citation-audit.md"), "utf8").includes(e.auditEntryId)), "Markdown and JSON retain every stable citation key");
-if (badAuditRecheck) check((auditLedger.issues?.length ?? 0) >= (auditRecheckInvalid ? 2 : 3) && result.notCovered.some((s) => s.includes("覆盖/复核异常")), "malformed targeted re-check coverage is disclosed");
+if (badAuditRecheck) check((auditLedger.issues?.length ?? 0) >= (badAuditFile ? 1 : auditRecheckInvalid ? 2 : 3) && result.notCovered.some((s) => s.includes("覆盖/复核异常")), "malformed targeted re-check coverage is disclosed");
 if (auditRemove) check(auditLedger.removed.length === 1 && result.metrics.citationAudit.removed === 1 && JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).entries.length === 9, "explicitly removed citation points retain their original judgment and removal evidence");
 check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
 check(!fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "the analyst fixes hard-coded paths to use relative source paths");
@@ -558,9 +598,9 @@ if (gateCompoundId) {
   if (gateCompoundMissingId) check(JSON.parse(fs.readFileSync(outFile("tool-records/citation-gate-recheck.json"), "utf8")).requests.length === 1, "a note containing PMID and DOI for the same entry binds even when failedIds is omitted");
 }
 if (statsConflict) {
-  check(statReviewCount === (statsPersistentMajor ? 3 : 2) && statsRepairCount === (statsPersistentMajor ? 2 : 1), "a minor verdict with major issues triggers bounded statistical correction and independent re-review");
+  check(statReviewCount === (statsRepairPersistent ? 3 : 2) && statsRepairCount === (statsRepairPersistent ? 2 : 1), "a minor verdict with major issues triggers bounded statistical correction and independent re-review");
   check(writerDraftPrompt.includes("主结论转录已更正 r=.20") && !writerDraftPrompt.includes("主结论转录错误 r=.99"), "the writer receives the analyst's returned corrected metadata rather than the old keyFindings");
-  check(stages["统计审稿"] === (statsPersistentMajor ? "issues" : "passed") && result.metrics.statsReview.openMajors === (statsPersistentMajor ? 1 : 0), "statistical gate severity and open-major metrics reflect the issue list rather than the verdict label");
+  check(stages["统计审稿"] === (statsRepairPersistent ? "issues" : "passed") && result.metrics.statsReview.openMajors === (statsPersistentMajor ? 1 : 0), "statistical gate severity and open-major metrics reflect the issue list rather than the verdict label");
   check(fs.existsSync(outFile("tool-records/statistical-reviews.json")), "all statistical review rounds are retained as an inspectable record");
   if (verifyAfterPortability) check(JSON.parse(fs.readFileSync(outFile("tool-records/analysis-result-final.json"), "utf8")).reproducibility.includes("python3 -c") && JSON.parse(fs.readFileSync(outFile("tool-records/analysis-result-final.json"), "utf8")).reproducibility.includes("分析员自报"), "statistical metadata refresh preserves the deterministic command record and labels later self-reports");
   if (statsPersistentMajor) check(result.metrics.statsReview.verdict === "major-revision" && result.findings.some((f) => f.severity === "medium" && f.status === "unconfirmed" && f.evidence.includes(STAT_MAJOR)) && result.notCovered.some((note) => /统计/.test(note) && /major|主要/.test(note)), "persistent statistical majors remain unconfirmed findings and not covered after the bounded repair budget");
@@ -590,6 +630,19 @@ if (withTools) {
   check(sourceIntegrity?.available === false && result.notCovered.some((s) => s.includes("源") && /未|无法|不可用/.test(s)), "missing source-snapshot tooling is disclosed without claiming source integrity");
 }
 
+if (auditFile || badAuditFile) check(calls.some((c) => c.name.startsWith("CiteAudit") && c.prompt.startsWith("修订后只复核") && c.prompt.includes("完成后只回复一行")), "targeted audit returns a file status string instead of a nested inline object schema");
+if (auditFileMissing) check(fs.readFileSync(outFile("tool-records/citation-audit-recheck.json"), "utf8").trim() === "null" && auditLedger.entries[7].accuracy === "unsupported", "a missing new response cannot reuse a stale successful file");
+if (auditBibliography && !auditBibliographyUnconfirmed && !auditBibliographyHard) check(JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).problems === 3 && auditLedger.entries[0].bibliography === "match" && calls.some((c) => c.name.startsWith("Writer") && c.prompt.includes("首作者与期刊错误")), "a supported claim with a mismatched bibliography is corrected and independently rechecked");
+if (auditBibliographyHard) check(auditLedger.entries[0].retractionStatus === "concern" && result.findings.some((f) => f.what.includes(`引文深审问题：${GOOD[0].id}`) && f.status === "verified" && f.severity === "high"), "a bibliography mismatch cannot downgrade a concurrent expression-of-concern failure");
+if (auditBibliographyUnconfirmed) check(auditLedger.entries[0].bibliography === "mismatch" && result.metrics.citationAudit.problems >= 1 && result.findings.some((f) => f.evidence.includes("首作者与期刊错误") && f.status === "unconfirmed" && f.severity === "medium"), "an unknown bibliography recheck cannot clear a confirmed initial mismatch");
+if (statsSummaryErrors && !statsSummaryPersistent) check(result.metrics.statsReview.openMajors === 0 && result.metrics.statsReview.openSummaryIssues === 0 && statReviewCount === 2 && statsRepairCount === 1 && JSON.parse(fs.readFileSync(outFile("tool-records/analysis-result-final.json"), "utf8")).keyFindings[0].includes("已更正"), "minor summary transcription errors trigger metadata refresh and re-review without inventing a major verdict");
+if (statsSummaryPersistent) {
+  const m = result.metrics;
+  const total = m.peerReview.openMajors + m.statsReview.openMajors + m.statsReview.openSummaryIssues + m.statsReview.pendingMinorNotes + m.peerReview.pendingMinorNotes + m.grill.unanswered + m.citationAudit.problems + m.citationAudit.coverageIssues + (m.citationGate.passed ? 0 : 1) + (m.reproFailed || m.deterministic.sourceIntegrity.unchanged !== true ? 1 : 0) + (visualRecheckPass ? 0 : 1);
+  check(m.statsReview.verdict === "minor-revision" && m.statsReview.openMajors === 0 && m.statsReview.openSummaryIssues === 1 && result.findings.some((f) => f.evidence === STAT_MAJOR && f.status === "unconfirmed") && result.notCovered.some((n) => n.includes("分析摘要错误")) && result.conclusion.includes(`遗留 ${total} 项`), "persistent summary errors stay in metrics, findings, notCovered and the final count without a fabricated major verdict");
+}
+if (largeToolOutput) check(fs.statSync(outFile("tool-records/sources-before.json")).size > 262144 && result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.sourceIntegrity.available === false, "oversized tool output stays on disk and falls back without killing the run or claiming snapshot verification");
+check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("完整回归模型残差")) && calls.some((c) => c.name.startsWith("ArtDir") && c.system.includes("CPR")) && calls.some((c) => c.name.startsWith("VisualQA") && c.system.includes("完整模型残差")), "statistical and visual reviewers check the actual plot formula rather than copying a wrong original");
 const keep = process.argv.includes("--keep");
 console.log(`\n${failures.length === 0 ? "ALL PASS" : `${failures.length} FAILED`} (${withTools ? "with tools" : "no tools"}${keep ? `; workspace kept at ${ws}` : ""})`);
 if (!keep) fs.rmSync(tmp, { recursive: true, force: true });

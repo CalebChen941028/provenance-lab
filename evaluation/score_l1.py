@@ -17,6 +17,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXPECTED = os.path.join(HERE, "citation-error-cases", "expected.json")
 PROBLEM_FIELDS = ("isPrimary", "accuracy", "necessity", "retractionStatus")
+VERDICT_FIELDS = (*PROBLEM_FIELDS, "bibliography")
 
 
 def flagged(e: dict) -> bool:
@@ -25,6 +26,7 @@ def flagged(e: dict) -> bool:
         or e.get("accuracy") != "supported"
         or e.get("necessity") != "necessary"
         or e.get("retractionStatus") in ("retracted", "concern")
+        or e.get("bibliography") == "mismatch"
     )
 
 
@@ -53,7 +55,8 @@ def score(run: dict, cases: list[dict]) -> dict:
             clean_ok += ok
         rows.append({
             "case": c["id"], "type": c["error_type"], "pass": ok, "matched": e is not None,
-            "got": {k: e.get(k) for k in (*PROBLEM_FIELDS, "textLevel")} if e else None, "expected": c["expected"],
+            "got": {k: e.get(k, "unknown" if k == "bibliography" else None)
+                    for k in (*VERDICT_FIELDS, "textLevel")} if e else None, "expected": c["expected"],
         })
     det = run.get("deterministic") or []
     det_by_id = {r.get("id"): r for r in det}
@@ -85,11 +88,11 @@ def main(paths: list[str]) -> int:
         results.append(r)
         print(f"## {p}\n")
         print(f"敏感度 {r['hits']}/{r['problems']}　特异度 {r['cleanOk']}/{r['nonProblem']}\n")
-        print("| 案例 | 类型 | 通过 | 判定 | textLevel |")
+        print("| 案例 | 类型 | 通过 | 判定（含 bibliography） | textLevel |")
         print("|---|---|---|---|---|")
         for row in r["rows"]:
             got = row["got"]
-            verdict = "未匹配" if not got else "/".join(str(got[k]) for k in PROBLEM_FIELDS)
+            verdict = "未匹配" if not got else "/".join(str(got[k]) for k in VERDICT_FIELDS)
             print(f"| {row['case']} | {row['type']} | {'✅' if row['pass'] else '❌'} | {verdict} | {got['textLevel'] if got else '-'} |")
         if r["deterministic"]:
             print("\n确定性层：" + "；".join(f"{k} {'✅' if v else '❌'}" for k, v in r["deterministic"].items()))

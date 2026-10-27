@@ -60,6 +60,8 @@ D42 separates original and newly discovered issues in the final recheck. New iss
 
 D43 matches compound identifiers through verified aliases and leaves ambiguous notes unresolved. Statistical major lists override labels, revised results replace stale summaries, and defense roles share saved full review context. Figure production and review use the same journal target. Real L-A/L1 effects await validation.
 
+D44 bounds tool-output readback, accepts manifest comments and excludes named virtual environments from source snapshots. Audit rechecks use validated files; confirmed bibliographic errors require correction and recheck, and analysis-summary transcription errors trigger bounded revisions. Figure checks include the computed object: CPR uses full-model residuals plus βx. Source defects require formal rerun/refreeze. Real D44 and L1 effects remain unverified.
+
 ## Install
 
 ```bash

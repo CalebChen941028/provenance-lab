@@ -32,8 +32,10 @@ python3 tools/plab.py source-snapshot --root provenance-lab-output --out provena
 
 覆盖边界：statcheck 不推断分列表格或缺失自由度；匹配数不是全稿统计结论数。resolve 的 found=null/unknown 不算确定性核验通过。OA 下载保留来源提供的许可证，未知时不补猜；接口失败与付费墙分别记录。
 
-`manifest` 只接受标准 SHA-256 两空格格式（亦支持 `shasum` 的 ` *` 二进制标记）。清单路径按命令当前目录解析，文件条目相对 `--root`；清单自身与解析后的文件路径都必须在该根目录内。拒绝绝对条目、`..`、反斜线、逃逸的符号链接、重复路径、空清单与非法格式。返回 `available`（清单可读）、`listed`（格式合法且安全的唯一列出路径数）、`verified`（摘要匹配的文件数）、`missing`/`mismatched`（失败路径）、`invalid`（行号、可得路径与原因）、`ok`。清单缺失时正常返回 `available=false, ok=false`；缺失、摘要不符或非法条目均不算验证通过。仅清单20项通过就报告20，不能采信自报26项或以目录文件总数代替。工具只输出计数、路径与状态，不输出文件内容。
+`manifest` 接受标准 SHA-256 两空格格式（亦支持 `shasum` 的 ` *` 二进制标记），跳过空白行及 `#` 注释行（可有前导空白）；只有注释或空白仍为空清单，不能通过。清单路径按命令当前目录解析，文件条目相对 `--root`；清单自身与解析后的文件路径都必须在该根目录内。拒绝绝对条目、`..`、反斜线、逃逸的符号链接、重复路径、空清单与非法格式。返回 `available`（清单可读）、`listed`（格式合法且安全的唯一列出路径数）、`verified`（摘要匹配的文件数）、`missing`/`mismatched`（失败路径）、`invalid`（行号、可得路径与原因）、`ok`。清单缺失时正常返回 `available=false, ok=false`；缺失、摘要不符或非法条目均不算验证通过。仅清单20项通过就报告20，不能采信自报26项或以目录文件总数代替。工具只输出计数、路径与状态，不输出文件内容。
 
-`source-snapshot` 固定递归扫描产物根目录内的 `04-analysis/`（必须存在）与 `03-sap-code/`（可选），不执行脚本。选取 `.py/.r/.sh/.jl/.m/.ipynb/.js/.ts/.do/.sas/.Rmd/.qmd`（大小写不敏感），以及 `requirements*.txt`、`constraints*.txt`、`pyproject.toml`、`uv.lock`、`renv.lock`、Pipfile/poetry、conda、npm/yarn/pnpm 等依赖定义与锁文件。排除 `venv/.venv/__pycache__/node_modules/outputs/figures/tables/data/figures-polished` 目录，不跟随目录符号链接；执行材料符号链接、根目录逃逸、不安全路径、非普通文件或读取失败均记入 `issues`。文件流式计算摘要，结果只含 `available`、按根目录相对路径排序的 `files: [{path, sha256}]` 与 `issues`，不输出内容；零执行材料或任何异常均 `available=false`。
+`source-snapshot` 固定递归扫描产物根目录内的 `04-analysis/`（必须存在）与 `03-sap-code/`（可选），不执行脚本。选取 `.py/.r/.sh/.jl/.m/.ipynb/.js/.ts/.do/.sas/.Rmd/.qmd`（大小写不敏感），以及 `requirements*.txt`、`constraints*.txt`、`pyproject.toml`、`uv.lock`、`renv.lock`、Pipfile/poetry、conda、npm/yarn/pnpm 等依赖定义与锁文件。排除 `venv/.venv/__pycache__/node_modules/outputs/figures/tables/data/figures-polished` 目录，以及 `venv-`、`venv_`、`.venv-`、`.venv_` 开头的命名环境；`venvtools` 等普通代码目录仍扫描，不跟随目录符号链接；执行材料符号链接、根目录逃逸、不安全路径、非普通文件或读取失败均记入 `issues`。文件流式计算摘要，结果只含 `available`、按根目录相对路径排序的 `files: [{path, sha256}]` 与 `issues`，不输出内容；零执行材料或任何异常均 `available=false`。
 
 阶段前后快照可以识别选定材料的增加、删除与修改；出现变更时，旧源码下的复现记录不能证明最终源码仍已复现。快照相同只证明这些本地执行材料未变，不证明依赖闭包完整、SAP 事前性或独立干净重跑通过；呈现目录与产物字节也不在该快照覆盖范围内。
+
+ZCode 调用封装先把 stdout/stderr 写到临时文件，再限量回读；`--out` 文件保留完整工具结果。输出过大或截断后 JSON 无法解析时，编排回落到人工或 agent 核查并披露，不能从残片宣称工具通过。此限制属于宿主调用封装，不改变直接运行 CLI 的结果文件格式。
