@@ -58,6 +58,8 @@ D41 gives all correctable round-2 failures a final targeted correction/recheck, 
 
 D42 separates original and newly discovered issues in the final recheck. New issues or invalid rechecks remain pending and denied, without automatic exclusion. Code generates the final evidence table and machine record together. Analysis directories and publication entries are separate; grouped citations follow source identity, and no-text entries cannot authorize new sources. Disclose previously viewed primary-seed results in the SAP and archive old design scripts. Real effects await regression.
 
+D43 matches compound identifiers through verified aliases and leaves ambiguous notes unresolved. Statistical major lists override labels, revised results replace stale summaries, and defense roles share saved full review context. Figure production and review use the same journal target. Real L-A/L1 effects await validation.
+
 ## Install
 
 ```bash

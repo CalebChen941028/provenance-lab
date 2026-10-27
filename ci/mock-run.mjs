@@ -19,6 +19,11 @@
 //   node ci/mock-run.mjs --no-tools --verify-after-portability # verifyCommand must run after path repairs
 //   node ci/mock-run.mjs --source-drift # post-analysis edits cannot inherit the frozen reproducibility claim
 //   node ci/mock-run.mjs --no-tools --visual-recheck-pass # revised figures get a second independent check
+//   node ci/mock-run.mjs --gate-compound-id # aliases in one compound identity never create false unbound notes
+//   node ci/mock-run.mjs --gate-compound-missing-id # a compound-identity note binds even without failedIds
+//   node ci/mock-run.mjs --no-tools --stats-contradictory # a minor verdict cannot hide substantive major issues
+//   node ci/mock-run.mjs --no-tools --stats-persistent-major # unresolved major issues get bounded repairs and remain visible
+//   node ci/mock-run.mjs --no-tools --grill-context # questions and responses receive archived underlying review material
 //   node ci/mock-run.mjs --gate-remove-hard # early removal cannot erase deterministic exclusion history
 //   node ci/mock-run.mjs --no-tools --gate-final-new-error # unresolved new issue stays pending, never silently excluded
 //   node ci/mock-run.mjs --no-tools --gate-persistent-error # an unresolved requested original issue may be excluded
@@ -69,6 +74,14 @@ const gateDropEntry = process.argv.includes("--gate-drop-entry");
 const verifyAfterPortability = process.argv.includes("--verify-after-portability");
 const sourceDrift = process.argv.includes("--source-drift");
 const visualRecheckPass = process.argv.includes("--visual-recheck-pass");
+const gateAmbiguousId = process.argv.includes("--gate-ambiguous-id");
+const figureTargetOverride = process.argv.includes("--figure-target-override");
+const gateCompoundMissingId = process.argv.includes("--gate-compound-missing-id");
+const gateCompoundId = process.argv.includes("--gate-compound-id") || gateCompoundMissingId;
+const statsContradictory = process.argv.includes("--stats-contradictory");
+const statsPersistentMajor = process.argv.includes("--stats-persistent-major");
+const statsConflict = statsContradictory || statsPersistentMajor;
+const grillContext = process.argv.includes("--grill-context");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plab-mock-"));
 const home = path.join(tmp, "home");
@@ -93,7 +106,7 @@ const w = (rel, text) => {
 const GOOD = [
   { id: "PMID:34299887", title: "Reciprocal Relationships between Sleep Problems and Problematic Smartphone Use in Taiwan: Cross-Lagged Panel Study", year: 2021, design: "两波交叉滞后", finding: "睡眠问题与 PSU 双向互预测" },
   { id: "PMID:35149136", title: "An updated of meta-analysis on the relationship between mobile phone addiction and sleep disorder", year: 2022, design: "meta 分析", finding: "汇总 r = 0.30" },
-  { id: "DOI:10.1001/jamapediatrics.2016.2341", title: "Association Between Portable Screen-Based Media Device Access or Use and Sleep Outcomes", year: 2016, design: "meta 分析", finding: "睡前设备使用与睡眠不足相关" },
+  { id: gateAmbiguousId ? "PMID:27802500（=doi:10.9999/unconfirmed-other-paper）" : gateCompoundId ? "PMID:27802500（=doi:10.1001/jamapediatrics.2016.2341）" : "DOI:10.1001/jamapediatrics.2016.2341", title: "Association Between Portable Screen-Based Media Device Access or Use and Sleep Outcomes", year: 2016, design: "meta 分析", finding: "睡前设备使用与睡眠不足相关" },
   { id: "arXiv:1907.10569", title: "Sample size calculations in simple linear regression", year: 2019, design: "方法学", finding: "非 PMID/DOI 的解析覆盖缺口必须披露" },
 ];
 const RETRACTED = { id: "PMID:9500320", title: "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children", year: 1998, design: "病例系列", finding: "（已撤稿）" };
@@ -117,6 +130,26 @@ let sameIdNewFixed = false;
 let visualCheckCount = 0;
 let entryDropped = false;
 let hardEntriesRemoved = false;
+let compoundTitleFixed = false;
+let compoundFindingFixed = false;
+let statsMetadataFixed = false;
+let statsRepairCount = 0;
+let statReviewCount = 0;
+let writerReadArchivedContext = false;
+const STAT_MAJOR = "关键结果转录错误：keyFindings 写 r=.99，冻结汇总为 r=.20，须更正下游元数据";
+const STAT_MINOR = "StatRev: 补充一项口径说明，尚未复核关闭";
+const PEER_MINOR = "Reviewer: 补充一项口径说明，尚未复核关闭";
+const UNBOUND_NOTE = "有一条意见缺少条目标识符，需要人工绑定";
+const archivedContext = () => {
+  const files = ["tool-records/facts-ledger.md", "tool-records/review-context.json"];
+  try {
+    const facts = fs.readFileSync(path.join(ws, OUT, files[0]), "utf8");
+    const reviews = JSON.parse(fs.readFileSync(path.join(ws, OUT, files[1]), "utf8"));
+    return { files, text: `${facts}\n${JSON.stringify(reviews)}`, available: true };
+  } catch {
+    return { files, text: "", available: false };
+  }
+};
 
 function respond(name, prompt, opts) {
   calls.push({ name, prompt, system: opts.system ?? "" });
@@ -162,21 +195,32 @@ function respond(name, prompt, opts) {
         wordingFixed ||= prompt.includes("汇总 r 写错");
         qualifierFixed ||= prompt.includes("限定语在摘要中不可考");
       }
+      if (gateCompoundId) {
+        if (prompt.includes("引文核查发现以下失败项")) compoundTitleFixed = true;
+        if (prompt.includes("先修正再复核")) {
+          compoundFindingFixed = prompt.includes("预期效应关联对象错误");
+          qualifierFixed = compoundFindingFixed;
+        }
+        included[2].title = compoundTitleFixed ? GOOD[2].title : `${GOOD[2].title}（题录旧错误）`;
+        included[2].finding = compoundFindingFixed ? "预期效应与消费类型相关（复合ID新finding已修正）" : compoundTitleFixed ? "预期效应与焦虑相关（新错误）" : "原表述";
+      }
       if (!gateSameIdError && wordingFixed) included[1].finding = "已按摘要更正汇总 r";
-      if (!gateSameIdError && qualifierFixed) included[2].finding = "已删除无原文支持的限定语";
+      if (!gateSameIdError && !gateCompoundId && qualifierFixed) included[2].finding = "已删除无原文支持的限定语";
       // Legacy workflows request a separate excision rewrite; vary spelling on that comparison path.
       if (prompt.includes("按协议从证据表剔除")) for (const p of included) p.id = p.id.replace("PMID:", "PMID: ");
       w(`${OUT}/02-evidence-table.md`, "# 证据表\n" + included.map((p) => `- ${p.id} ${p.title}`).join("\n"));
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
     case "CiteGate": {
+      if (gateAmbiguousId) return { passed: false, checked: 6, failures: ["PMID:27802500 与 DOI:10.9999/unconfirmed-other-paper：涉及两篇身份，待明确失败对象"], failedIds: [] };
+      if (grillContext && !withTools) return { passed: false, checked: 6, failures: [UNBOUND_NOTE], failedIds: [] };
       if (gateRemoveHard) return { passed: true, checked: prompt.startsWith("修正后的证据表") ? 4 : 6, failures: [], failedIds: [] };
       if (prompt.includes("逐个 checkId 回传 checks（每键一次）：")) {
         const requests = JSON.parse(prompt.split("逐个 checkId 回传 checks（每键一次）：")[1].split("\noriginalIssuesResolved")[0]);
         if (staleRecheck) return { checks: [{ checkId: "G9999", originalIssuesResolved: false, note: "本批以外的旧问题键", newIssues: [] }] };
         const checks = requests.map((request) => {
           const isFirst = request.paper.id === GOOD[1].id;
-          const resolved = gatePersistentError && isFirst ? false : gateSameIdError
+          const resolved = gateCompoundId ? compoundFindingFixed && prompt.includes("复合ID新finding已修正") : gatePersistentError && isFirst ? false : gateSameIdError
             ? prompt.includes("国别修正完成") && prompt.includes("阴性比较对象修正完成")
             : isFirst ? prompt.includes("已按摘要更正汇总 r") : prompt.includes("已删除无原文支持的限定语");
           return { checkId: request.checkId, originalIssuesResolved: resolved, note: resolved ? "本次原问题与摘要逐项核对已修正" : "本次送修原问题仍未改正", newIssues: gateFinalNewError && isFirst ? ["design 人群标签首次发现窄化；应为健康照护类大学生"] : [] };
@@ -187,6 +231,10 @@ function respond(name, prompt, opts) {
         if (gateRecheckInvalid) return { checks: checks.map((c) => ({ ...c, note: "" })) };
         if (gateRecheckDuplicate) return { checks: [...checks, ...checks] };
         return { checks };
+      }
+      if (gateCompoundId) {
+        if (prompt.startsWith("修正后的证据表")) return { passed: false, checked: 6, failures: [`${GOOD[2].id}：题录已更正，但预期效应关联对象错误；须改为预期效应与消费类型相关`], failedIds: gateCompoundMissingId ? [] : [GOOD[2].id] };
+        return { passed: false, checked: 6, failures: [`${GOOD[2].id}：标题题录旧错误，须按登记题名更正并保留`], failedIds: [GOOD[2].id] };
       }
       if (gateDropEntry) return prompt.startsWith("修正后的证据表")
         ? { passed: true, checked: 8, failures: [], failedIds: [] }
@@ -216,16 +264,30 @@ function respond(name, prompt, opts) {
     case "Stats":
       w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
       return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: `${OUT}/03-sap.md` };
-    case "Analyst":
-      // first version hard-codes a home path; only the portability request makes it relative
-      w(`${OUT}/04-analysis/run.py`, prompt.includes("可移植性检查") ? "from pathlib import Path\nHERE = Path(__file__).resolve().parent\n" : 'HERE = "/Users/someone/project/04-analysis"\n');
-      w(`${OUT}/04-analysis/tables/summary.json`, '{"r":0.2}\n');
-      w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update('{"r":0.2}\n').digest("hex")}  tables/summary.json\n`);
-      w(`${OUT}/04-analysis/summary_report.md`, "# Analysis output entry\n");
-      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: ["r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
-    case "StatRev":
+    case "Analyst": {
+      const statsRepair = prompt.includes("统计审稿要求修改") || prompt.includes("统计审稿停滞");
+      if (statsRepair) {
+        statsRepairCount++;
+        statsMetadataFixed = true;
+      } else {
+        // Portability repair precedes verification; a metadata-only statistical repair keeps this source unchanged.
+        w(`${OUT}/04-analysis/run.py`, prompt.includes("可移植性检查") ? "from pathlib import Path\nHERE = Path(__file__).resolve().parent\n" : 'HERE = "/Users/someone/project/04-analysis"\n');
+        w(`${OUT}/04-analysis/tables/summary.json`, '{"r":0.2}\n');
+        w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update('{"r":0.2}\n').digest("hex")}  tables/summary.json\n`);
+        w(`${OUT}/04-analysis/summary_report.md`, "# Analysis output entry\n");
+      }
+      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: [statsConflict ? statsMetadataFixed ? "主结论转录已更正 r=.20" : "主结论转录错误 r=.99" : "r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
+    }
+    case "StatRev": {
+      statReviewCount++;
+      const majorIssues = statsConflict && (statsPersistentMajor || !statsMetadataFixed) ? [STAT_MAJOR] : [];
+      // The intentionally contradictory verdict models the D42 response: severity comes from the issue list.
+      return { majorIssues, minorIssues: [STAT_MINOR], verdict: "minor-revision", persistingFromLastRound: 0 };
+    }
     case "Reviewer":
-      return { majorIssues: [], minorIssues: [`${role}: 补充一项口径说明，尚未复核关闭`], verdict: "minor-revision", persistingFromLastRound: 0 };
+      return { majorIssues: [], minorIssues: [PEER_MINOR], verdict: "minor-revision", persistingFromLastRound: 0 };
+    case "Diag":
+      return "核对冻结汇总与返回的 keyFindings，修正转录后再次审稿";
     case "ArtDir":
       if (sourceDrift) fs.appendFileSync(path.join(ws, OUT, "04-analysis/run.py"), "# source changed after analysis freeze\n");
       return { polishedDir: `${OUT}/04-analysis/figures-polished`, auditPath: `${OUT}/09-figure-audit.md`, figures: [] };
@@ -236,8 +298,10 @@ function respond(name, prompt, opts) {
         : { passed: false, issues: ["图中文字过小，需整改"] };
     case "Writer": {
       if (prompt.includes("答辩拷问问题清单")) {
-        w(`${OUT}/07-rebuttal.md`, "# 回应信\n");
-        return { rebuttalPath: `${OUT}/07-rebuttal.md`, answers: ["a"], unanswered: [] };
+        const context = archivedContext();
+        writerReadArchivedContext = grillContext && context.available && [STAT_MINOR, PEER_MINOR, UNBOUND_NOTE].every((note) => context.text.includes(note));
+        w(`${OUT}/07-rebuttal.md`, grillContext && writerReadArchivedContext ? "# 回应信\n已读取持久化账本和两条审稿意见原文，无材料缺失。\n" : "# 回应信\n");
+        return { rebuttalPath: `${OUT}/07-rebuttal.md`, answers: ["a"], unanswered: grillContext && !writerReadArchivedContext ? ["无法核对账本和审稿意见：原材料缺失"] : [] };
       }
       if (auditGroupReplacedSource && prompt.includes("引文深审发现")) {
         w(`${OUT}/06-draft.md`, draftV1.replace("PMID: 27802500", "PMID: 1444724"));
@@ -253,8 +317,10 @@ function respond(name, prompt, opts) {
       }
       return { draftPath: `${OUT}/06-draft.md`, abstract: "", sections: [], figures: [] };
     }
-    case "Examiner":
-      return [{ question: "q", probing: "p" }];
+    case "Examiner": {
+      const context = archivedContext();
+      return [{ question: grillContext ? "核对持久化账本和审稿意见原文" : "q", probing: grillContext && !context.available ? "材料缺失" : "p" }];
+    }
     case "CiteAudit": {
       if (prompt.startsWith("修订后只复核")) {
         const requests = JSON.parse(prompt.split("：")[1].split("\n当前初稿")[0]);
@@ -306,6 +372,7 @@ const runtime = {
   args: solo
     ? { topic: "L1 植错集", mode: "citation-audit", draftPath: path.join(ROOT, "evaluation/citation-error-cases/seeded-draft.md") }
     : { topic: "PSU 与青少年睡眠质量（模拟）", integrityMode: "development", teamProfile: "hybrid", figurePolish: "true", language: "中文",
+        ...(figureTargetOverride ? { figureStyleJournal: "Explicit Test Journal" } : {}),
         ...(verifyAfterPortability ? { verifyCommand: `python3 -c 'from pathlib import Path; assert "/Users/" not in Path("${OUT}/04-analysis/run.py").read_text(); Path("verify-after-portability.ok").write_text("verified")'` } : {}),
       },
   agent: (name, opts) => ({ ask: async (prompt) => respond(name, prompt, opts) }),
@@ -389,8 +456,8 @@ if (withTools) {
   if (online) {
     const gate = result.metrics.citationGate;
     check(stages["引文核查"] === "issues" && gate.excluded === (gatePersistentError ? 3 : 2), `citation gate excludes retracted + fabricated even though the checker passed them (excluded ${gate.excluded})`);
-    check(gateRemoveHard ? gate.corrected === 0 && !wordingFixed && !qualifierFixed : gate.corrected === (badGateRecheck || staleRecheck ? 0 : gateFinalNewError || gatePersistentError ? 1 : 2) && wordingFixed && qualifierFixed, "semantic corrections are counted only when requested and verified; hard-only removal needs no wording repair");
-    if (!gateSameIdError && !gateRemoveHard) check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
+    check(gateCompoundId ? gate.corrected === 1 && compoundTitleFixed && compoundFindingFixed : gateRemoveHard ? gate.corrected === 0 && !wordingFixed && !qualifierFixed : gate.corrected === (badGateRecheck || staleRecheck ? 0 : gateFinalNewError || gatePersistentError ? 1 : 2) && wordingFixed && qualifierFixed, "semantic corrections are counted only when requested and verified; hard-only removal needs no wording repair");
+    if (!gateSameIdError && !gateRemoveHard && !gateCompoundId) check(result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("人工绑定")), "unbound citation notes remain visible instead of silently passing");
     check(result.metrics.deterministic.evidenceResolved.unresolved === 1 && result.notCovered.some((s) => s.includes("arXiv:1907.10569") && s.includes("不能计为确定性核验通过")), "unresolved identifiers are not counted as deterministic verification");
     const paperMustRemainDenied = gateFinalNewError || gatePersistentError || badGateRecheck || staleRecheck;
     check(paperMustRemainDenied ? writerDraftPrompt.includes("35149136") && writerDraftPrompt.includes("禁止引用") : !/禁止引用：[^\n]*35149136/.test(writerDraftPrompt), "a corrected paper stays citable unless an explicit pending or exclusion judgment prohibits it");
@@ -415,7 +482,7 @@ if (withTools) {
   }
 } else {
   check(result.notCovered.some((s) => s.includes("确定性引文终检未能运行")), "missing tools are disclosed in notCovered");
-  check(stages["引文核查"] === (staleRecheck || gateDropEntry || gateFinalNewError || gatePersistentError || badGateRecheck ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
+  check(stages["引文核查"] === (staleRecheck || gateDropEntry || gateFinalNewError || gatePersistentError || badGateRecheck || grillContext || gateAmbiguousId ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
   if (staleRecheck) check(result.metrics.citationGate.corrected === 0 && result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("范围外失败条目")), "out-of-scope re-check failures cannot count as corrected entries");
   const lib = calls.find((c) => c.name.startsWith("Librarian"));
   check(!lib.system.includes("下载已由确定性工具完成"), "librarian falls back to downloading itself");
@@ -482,6 +549,35 @@ if (gateSameIdError) {
   check(result.metrics.citationGate.corrected === 2 && result.metrics.citationGate.excluded === (withTools ? 2 : 0), "corrected papers, including negative evidence, are retained despite having failed earlier for different reasons");
   check(calls.some((c) => c.name.startsWith("CiteGate") && c.prompt.includes("已按上轮核查意见修正") && c.prompt.includes("国别修正完成") && c.prompt.includes("阴性比较对象修正完成")), "the final check sees corrected design and finding fields, including the negative comparison structure");
 }
+if (gateCompoundId) {
+  const gate = result.metrics.citationGate;
+  check(compoundTitleFixed && compoundFindingFixed && calls.filter((c) => c.name.startsWith("CiteGate")).length === 3, "a compound PMID/DOI identity receives correction of both its old title and new finding issue");
+  check(gate.corrected === 1 && gate.unboundNotes === 0 && gate.pending === 0 && gate.excluded === (withTools ? 2 : 0), "two aliases for one corrected paper never create false unbound notes or pending evidence");
+  check(!result.findings.some((f) => f.evidence.includes("标题题录旧错误") || f.evidence.includes("预期效应关联对象错误")), "corrected compound-identity findings are not recycled as outstanding findings");
+  check(withTools || stages["引文核查"] === "passed", "without hard exclusions the corrected compound-identity citation gate passes");
+  if (gateCompoundMissingId) check(JSON.parse(fs.readFileSync(outFile("tool-records/citation-gate-recheck.json"), "utf8")).requests.length === 1, "a note containing PMID and DOI for the same entry binds even when failedIds is omitted");
+}
+if (statsConflict) {
+  check(statReviewCount === (statsPersistentMajor ? 3 : 2) && statsRepairCount === (statsPersistentMajor ? 2 : 1), "a minor verdict with major issues triggers bounded statistical correction and independent re-review");
+  check(writerDraftPrompt.includes("主结论转录已更正 r=.20") && !writerDraftPrompt.includes("主结论转录错误 r=.99"), "the writer receives the analyst's returned corrected metadata rather than the old keyFindings");
+  check(stages["统计审稿"] === (statsPersistentMajor ? "issues" : "passed") && result.metrics.statsReview.openMajors === (statsPersistentMajor ? 1 : 0), "statistical gate severity and open-major metrics reflect the issue list rather than the verdict label");
+  check(fs.existsSync(outFile("tool-records/statistical-reviews.json")), "all statistical review rounds are retained as an inspectable record");
+  if (verifyAfterPortability) check(JSON.parse(fs.readFileSync(outFile("tool-records/analysis-result-final.json"), "utf8")).reproducibility.includes("python3 -c") && JSON.parse(fs.readFileSync(outFile("tool-records/analysis-result-final.json"), "utf8")).reproducibility.includes("分析员自报"), "statistical metadata refresh preserves the deterministic command record and labels later self-reports");
+  if (statsPersistentMajor) check(result.metrics.statsReview.verdict === "major-revision" && result.findings.some((f) => f.severity === "medium" && f.status === "unconfirmed" && f.evidence.includes(STAT_MAJOR)) && result.notCovered.some((note) => /统计/.test(note) && /major|主要/.test(note)), "persistent statistical majors remain unconfirmed findings and not covered after the bounded repair budget");
+}
+if (grillContext) {
+  const context = archivedContext();
+  const needed = [STAT_MINOR, PEER_MINOR, UNBOUND_NOTE];
+  check(context.available && needed.every((note) => context.text.includes(note)), "facts ledger and complete review context are archived before questioning");
+  check(calls.filter((c) => c.name.startsWith("Examiner") || c.name.startsWith("Writer") && c.prompt.includes("答辩拷问问题清单")).every((c) => needed.every((note) => c.prompt.includes(note)) && context.files.every((file) => c.prompt.includes(file))), "both examiner and rebuttal writer receive the same exact review notes, gate note and archive paths");
+  check(writerReadArchivedContext && !result.notCovered.some((note) => note.includes("原材料缺失")), "the rebuttal writer can read the archived material instead of inventing a missing-context limitation");
+}
+if (gateAmbiguousId) {
+  check(result.metrics.citationGate.unboundNotes > 0 && result.metrics.citationGate.corrected === 0 && result.metrics.citationGate.excluded === 0 && stages["引文核查"] === "issues", "unconfirmed compound identifiers do not create an alias equivalence without deterministic evidence");
+  check(!calls.some((c) => c.name.startsWith("CiteGate") && c.prompt.includes("逐个 checkId")), "an ambiguous multi-paper note is not guessed into a targeted repair");
+}
+const expectedFigureJournal = figureTargetOverride ? "Explicit Test Journal" : "J Adolesc";
+check(calls.some((c) => c.name.startsWith("ArtDir") && c.system.includes(`按目标期刊（${expectedFigureJournal}）`) && c.prompt.includes(`目标期刊：${expectedFigureJournal}`)) && calls.some((c) => c.name.startsWith("VisualQA") && c.system.includes(`逐张检查 ${expectedFigureJournal} 规范`)), "figure artist and visual reviewer share the same effective journal including explicit overrides");
 const sourceIntegrity = result.metrics.deterministic.sourceIntegrity;
 if (withTools) {
   check(sourceIntegrity?.available === true && sourceIntegrity.unchanged === !sourceDrift, "source integrity compares the current analysis/SAP source snapshot with the frozen one");
