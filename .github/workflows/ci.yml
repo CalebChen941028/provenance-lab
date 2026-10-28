@@ -31,6 +31,14 @@ jobs:
           node ci/mock-run.mjs --no-tools
           node ci/mock-run.mjs --no-tools --large-tool-output
           node ci/mock-run.mjs --no-tools --audit-file
+          node ci/mock-run.mjs --no-tools --audit-file-flat
+          node ci/mock-run.mjs --no-tools --audit-file-flat-mixed
+          node ci/mock-run.mjs --no-tools --audit-file-flat-invalid
+          node ci/mock-run.mjs --no-tools --audit-inline-reference
+          node ci/mock-run.mjs --no-tools --figure-source-error
+          node ci/mock-run.mjs --no-tools --figure-source-persistent
+          node ci/mock-run.mjs --no-tools --figure-source-shape
+          node ci/mock-run.mjs --no-tools --figure-source-late
           node ci/mock-run.mjs --no-tools --audit-file-missing
           node ci/mock-run.mjs --no-tools --audit-file-malformed
           node ci/mock-run.mjs --no-tools --audit-file-shape

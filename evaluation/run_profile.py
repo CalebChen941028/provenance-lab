@@ -34,6 +34,28 @@ def find_run(con: sqlite3.Connection, key: str) -> tuple:
     return row
 
 
+def event_segments(con: sqlite3.Connection, run: tuple) -> tuple[list[tuple], str | None]:
+    """Return complete start/settle pairs; partial histories cannot prove activity."""
+    try:
+        rows = con.execute(
+            "select type, time_created from dwf_event where run_id = ? "
+            "and type in ('run-started', 'run-settled') order by sequence",
+            (run[0],),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return [], f"{run[0]}：起止事件表不可用"
+    if not rows or len(rows) % 2 or rows[0][1] != run[4] or rows[-1][1] != run[5]:
+        return [], f"{run[0]}：起止事件不足以覆盖完整运行"
+    segments = []
+    for index in range(0, len(rows), 2):
+        begin, end = rows[index:index + 2]
+        if (begin[0] != "run-started" or end[0] != "run-settled"
+                or begin[1] > end[1] or (segments and begin[1] < segments[-1][1])):
+            return [], f"{run[0]}：起止事件不成对或时序冲突"
+        segments.append((begin[1], end[1]))
+    return segments, None
+
+
 def run_span(con: sqlite3.Connection, run: tuple) -> dict:
     """Trace cached resumes without summing their cumulative token counters.
 
@@ -45,6 +67,7 @@ def run_span(con: sqlite3.Connection, run: tuple) -> dict:
     seen = {current}
     resumes = 0
     issues = []
+    chain = [run]
     while True:
         row = con.execute("select resumed_from from dwf_run where id = ?", (current,)).fetchone()
         if not row:
@@ -56,23 +79,61 @@ def run_span(con: sqlite3.Connection, run: tuple) -> dict:
         if parent in seen:
             issues.append(f"续接链存在循环：{parent}")
             break
-        parent_row = con.execute("select time_created from dwf_run where id = ?", (parent,)).fetchone()
+        parent_row = con.execute(
+            "select id, name, status, spent_tokens, time_created, time_updated from dwf_run where id = ?",
+            (parent,),
+        ).fetchone()
         if not parent_row:
             issues.append(f"缺少父运行 {parent}")
             break
-        start = min(start, parent_row[0])
+        start = min(start, parent_row[4])
+        chain.append(parent_row)
         seen.add(parent)
         current = parent
         resumes += 1
-    return {"minutes": (run[5] - start) / 60000,
-            "lastMinutes": (run[5] - run[4]) / 60000,
-            "resumes": resumes, "issues": issues}
+    event_issues = []
+    all_segments = []
+    last_segments = []
+    same_run_resumes = 0
+    for item in chain:
+        segments, issue = event_segments(con, item)
+        if issue:
+            event_issues.append(issue)
+        else:
+            all_segments.extend(segments)
+            same_run_resumes += len(segments) - 1
+        if item[0] == run[0]:
+            last_segments = segments
+    all_segments.sort()
+    if any(later[0] < earlier[1] for earlier, later in zip(all_segments, all_segments[1:])):
+        event_issues.append("续接链的活动段重叠，不能相加")
+    complete_events = not issues and not event_issues
+    active = sum(end - begin for begin, end in all_segments) / 60000 if complete_events else None
+    minutes = (run[5] - start) / 60000
+    return {"minutes": minutes,
+            "lastMinutes": ((last_segments[-1][1] - last_segments[-1][0]) / 60000
+                            if last_segments else (run[5] - run[4]) / 60000),
+            "resumes": resumes, "issues": issues,
+            "sameRunResumes": same_run_resumes,
+            "lastSource": "events" if last_segments else "run-fields",
+            "activeMinutes": active,
+            "pausedMinutes": minutes - active if active is not None else None,
+            "eventIssues": event_issues}
 
 
 def span_text(span: dict) -> str:
     label = "可追溯墙钟下界" if span["issues"] else "全程墙钟"
-    return (f"{label} {span['minutes']:.2f} 分钟 / 末段 {span['lastMinutes']:.2f} 分钟"
-            f" / 已追溯续接 {span['resumes']} 次")
+    text = f"{label} {span['minutes']:.2f} 分钟 / 末段 {span['lastMinutes']:.2f} 分钟"
+    if span["lastSource"] == "run-fields":
+        text += "（按运行字段估算，同ID续跑未确认）"
+    text += f" / 已追溯续接 {span['resumes']} 次 / 同ID续接 {span['sameRunResumes']} 次（完整事件范围）"
+    if span["activeMinutes"] is not None:
+        text += f" / 事件段合计 {span['activeMinutes']:.2f} 分钟 / 段间隔 {span['pausedMinutes']:.2f} 分钟"
+    else:
+        text += " / 事件段合计与间隔未确认"
+    if span["eventIssues"]:
+        text += f"；{'；'.join(span['eventIssues'])}"
+    return text
 
 
 def print_attribution(run: tuple, roles: dict[str, dict], label: str = "") -> None:

@@ -58,12 +58,16 @@ const auditFileMissing = process.argv.includes("--audit-file-missing");
 const auditFileMalformed = process.argv.includes("--audit-file-malformed");
 const auditFileShape = process.argv.includes("--audit-file-shape");
 const auditFileNullItem = process.argv.includes("--audit-file-null-item");
-const auditFile = process.argv.includes("--audit-file");
+const auditFileFlatInvalid = process.argv.includes("--audit-file-flat-invalid");
+const auditFileFlatMixed = process.argv.includes("--audit-file-flat-mixed");
+const auditFileFlat = process.argv.includes("--audit-file-flat") || auditFileFlatInvalid || auditFileFlatMixed;
+const auditFile = process.argv.includes("--audit-file") || auditFileFlat;
+const auditInlineReference = process.argv.includes("--audit-inline-reference");
 const auditBibliographyUnconfirmed = process.argv.includes("--audit-bibliography-unconfirmed");
 const auditBibliographyHard = process.argv.includes("--audit-bibliography-hard");
 const auditBibliography = process.argv.includes("--audit-bibliography") || auditBibliographyUnconfirmed || auditBibliographyHard;
 const largeToolOutput = process.argv.includes("--large-tool-output");
-const badAuditFile = auditFileMissing || auditFileMalformed || auditFileShape || auditFileNullItem;
+const badAuditFile = auditFileMissing || auditFileMalformed || auditFileShape || auditFileNullItem || auditFileFlatInvalid;
 const badAuditRecheck = auditRecheckErrors || auditRecheckInvalid || badAuditFile;
 const auditSwapSource = process.argv.includes("--audit-swap-source");
 const auditNoneSource = process.argv.includes("--audit-none-source");
@@ -83,7 +87,12 @@ const gateSameIdError = process.argv.includes("--gate-same-id-error");
 const gateDropEntry = process.argv.includes("--gate-drop-entry");
 const verifyAfterPortability = process.argv.includes("--verify-after-portability");
 const sourceDrift = process.argv.includes("--source-drift");
-const visualRecheckPass = process.argv.includes("--visual-recheck-pass");
+const figureSourcePersistent = process.argv.includes("--figure-source-persistent");
+const figureSourceError = process.argv.includes("--figure-source-error") || figureSourcePersistent;
+const figureSourceShape = process.argv.includes("--figure-source-shape");
+const figureSourceLate = process.argv.includes("--figure-source-late");
+const figureSourceRepairExpected = figureSourceError || figureSourceShape;
+const visualRecheckPass = process.argv.includes("--visual-recheck-pass") || figureSourceError && !figureSourcePersistent;
 const gateAmbiguousId = process.argv.includes("--gate-ambiguous-id");
 const figureTargetOverride = process.argv.includes("--figure-target-override");
 const gateCompoundMissingId = process.argv.includes("--gate-compound-missing-id");
@@ -159,7 +168,11 @@ let compoundFindingFixed = false;
 let statsMetadataFixed = false;
 let statsRepairCount = 0;
 let statReviewCount = 0;
+let figureSourceRepairCount = 0;
+let figureSourceFixed = false;
 let writerReadArchivedContext = false;
+const FIGURE_SOURCE = "fig01原分析把调整模型斜率画在未调整散点上，协变量固定零且超值域；须正式修订源码重跑重冻结";
+const ANALYSIS_CAVEAT = "分析员原始caveats：仅模拟演示，真实数据尚未核验";
 const STAT_MAJOR = "关键结果转录错误：keyFindings 写 r=.99，冻结汇总为 r=.20，须更正下游元数据";
 const STAT_MINOR = "StatRev: 补充一项口径说明，尚未复核关闭";
 const PEER_MINOR = "Reviewer: 补充一项口径说明，尚未复核关闭";
@@ -290,7 +303,13 @@ function respond(name, prompt, opts) {
       return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: `${OUT}/03-sap.md` };
     case "Analyst": {
       const statsRepair = prompt.includes("统计审稿要求修改") || prompt.includes("统计审稿停滞");
-      if (statsRepair) {
+      const figureRepair = prompt.startsWith("图表原分析计算错误，必须正式修订（一次）");
+      if (figureRepair) {
+        figureSourceRepairCount++;
+        figureSourceFixed = !(figureSourcePersistent || figureSourceShape);
+        fs.appendFileSync(path.join(ws, OUT, "04-analysis/run.py"), figureSourceFixed ? "# original figure calculation formally corrected and rerun\n" : "# attempted source repair; calculation still unresolved\n");
+        w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update(fs.readFileSync(path.join(ws, OUT, "04-analysis/tables/summary.json"))).digest("hex")}  tables/summary.json\n`);
+      } else if (statsRepair) {
         statsRepairCount++;
         statsMetadataFixed = true;
       } else {
@@ -300,11 +319,11 @@ function respond(name, prompt, opts) {
         w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update('{"r":0.2}\n').digest("hex")}  tables/summary.json\n`);
         w(`${OUT}/04-analysis/summary_report.md`, "# Analysis output entry\n");
       }
-      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: [statsConflict ? statsMetadataFixed ? "主结论转录已更正 r=.20" : "主结论转录错误 r=.99" : "r = .20"], decisions: [], reproducibility: "exit 0", caveats: "" };
+      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: [figureRepair ? figureSourceFixed ? "原图源码已正式修订，结果摘要 r=.20" : "原图源码问题仍未关闭，结果摘要 r=.20" : statsConflict ? statsMetadataFixed ? "主结论转录已更正 r=.20" : "主结论转录错误 r=.99" : "r = .20"], decisions: figureRepair ? ["原分析图件计算正式修订与重冻结记录"] : [], reproducibility: "exit 0", caveats: figureRepair && figureSourcePersistent ? FIGURE_SOURCE : figureSourceLate ? ANALYSIS_CAVEAT : "" };
     }
     case "StatRev": {
       statReviewCount++;
-      const majorIssues = statsConflict && !statsSummaryErrors && (statsPersistentMajor || !statsMetadataFixed) ? [STAT_MAJOR] : [];
+      const majorIssues = figureSourceError && prompt.startsWith("图表原分析修订后请独立复核") && !figureSourceFixed ? [FIGURE_SOURCE] : statsConflict && !statsSummaryErrors && (statsPersistentMajor || !statsMetadataFixed) ? [STAT_MAJOR] : [];
       const analysisSummaryIssues = statsSummaryErrors && (statsSummaryPersistent || !statsMetadataFixed) ? [STAT_MAJOR] : [];
       // The intentionally contradictory verdict models the D42 response: severity comes from the issue list.
       return { majorIssues, analysisSummaryIssues, minorIssues: [STAT_MINOR], verdict: "minor-revision", persistingFromLastRound: 0 };
@@ -315,12 +334,16 @@ function respond(name, prompt, opts) {
       return "核对冻结汇总与返回的 keyFindings，修正转录后再次审稿";
     case "ArtDir":
       if (sourceDrift) fs.appendFileSync(path.join(ws, OUT, "04-analysis/run.py"), "# source changed after analysis freeze\n");
-      return { polishedDir: `${OUT}/04-analysis/figures-polished`, auditPath: `${OUT}/09-figure-audit.md`, figures: [] };
+      return { polishedDir: `${OUT}/04-analysis/figures-polished`, auditPath: `${OUT}/09-figure-audit.md`, figures: [], sourceIssues: figureSourceShape ? { issue: FIGURE_SOURCE } : figureSourceLate && prompt.startsWith("视觉复核未通过") || figureSourceError && !figureSourceFixed ? [FIGURE_SOURCE] : [] };
     case "VisualQA":
       visualCheckCount++;
+      if (figureSourceShape) return { passed: true, issues: [], sourceIssues: null };
+      if (figureSourceLate) return visualCheckCount > 1 ? { passed: true, issues: [], sourceIssues: [FIGURE_SOURCE] } : { passed: false, issues: ["图中文字过小，需整改"], sourceIssues: [] };
+      // A visual pass must not conceal an unresolved original-analysis error.
+      if (figureSourceError) return { passed: true, issues: [], sourceIssues: figureSourceFixed ? [] : [FIGURE_SOURCE] };
       return visualRecheckPass && visualCheckCount > 1
-        ? { passed: true, issues: [] }
-        : { passed: false, issues: ["图中文字过小，需整改"] };
+        ? { passed: true, issues: [], sourceIssues: [] }
+        : { passed: false, issues: ["图中文字过小，需整改"], sourceIssues: [] };
     case "Writer": {
       if (prompt.includes("答辩拷问问题清单")) {
         const context = archivedContext();
@@ -360,6 +383,12 @@ function respond(name, prompt, opts) {
             updated: response.updates.filter((u) => u.action === "updated").map((u) => ({ entry: { ...u.entry, auditEntryId: u.auditEntryId } })),
             removed: response.updates.filter((u) => u.action === "removed").map((u) => ({ auditEntryId: u.auditEntryId, note: u.note })),
           };
+          if (auditFileFlat) {
+            const flat = payload.updated.map((u) => u.entry);
+            payload.updated = auditFileFlatInvalid
+              ? [{ ...flat[0], accuracy: "invalid" }, flat[1], { entry: flat[1] }, { ...flat[0], auditEntryId: undefined }, { ...flat[0], auditEntryId: "A9999" }]
+              : auditFileFlatMixed ? [flat[0], ...payload.updated.slice(1)] : flat;
+          }
           if (!auditFileMissing) w(`${OUT}/tool-records/citation-audit-recheck.json`, auditFileMalformed ? "{broken" : JSON.stringify(auditFileShape ? { updated: "bad", removed: [] } : auditFileNullItem ? { updated: [null, 17, {}], removed: [null] } : payload));
           return "已写入";
         }
@@ -371,6 +400,12 @@ function respond(name, prompt, opts) {
       }));
       entries.push({ citation: "DOI:10.1111/j.2517-6161.1995.tb02031.x", resolvedSource: auditNoneSource ? "DOI:10.1111/j.2517-6161.1995.tb02031.x；PMID:1444724（仅题录身份，未取得原文）" : "DOI:10.1111/j.2517-6161.1995.tb02031.x", textLevel: "none", isPrimary: "primary", sourceLocation: "-", accuracy: "supported", necessity: "necessary", retractionStatus: "clean", note: "方法学归属" });
       entries.push(...["5", "6", "7"].map((label) => ({ ...entries[0], citation: `[${label}] 参考文献对应引用点`, resolvedSource: "题录", textLevel: "none" })));
+      if (auditInlineReference) {
+        entries[0].citation = "[1] 样本说明：取值范围[5,6]并非参考引用";
+        entries[4].citation = "方法§2.4(L81)[5]：后置编号引用点";
+        entries[5].citation = "方法§2.4(L91)[6][7]：相邻多组引用点";
+        entries[6].citation = "方法§2.4(L97)[5-7]：范围引用点";
+      }
       // The same reference number must not conceal a changed source; valid aliases still match.
       entries[2] = { ...entries[2], citation: "[3] 文献对应引用点", resolvedSource: auditSwapSource ? "PMID:34299887" : GOOD[2].id };
       if (auditGroupReference) entries[2] = { ...entries[2], citation: "[2,3] 合并引用点", resolvedSource: "[2] PMID:35149136 摘要；[3] PMC全文（本行没有其PMID或DOI）" };
@@ -477,7 +512,7 @@ if (badAuditRecheck) check((auditLedger.issues?.length ?? 0) >= (badAuditFile ? 
 if (auditRemove) check(auditLedger.removed.length === 1 && result.metrics.citationAudit.removed === 1 && JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).entries.length === 9, "explicitly removed citation points retain their original judgment and removal evidence");
 check(calls.some((c) => c.name.startsWith("Analyst") && c.prompt.includes("可移植性检查")), "hard-coded home path in an analysis script is sent back to the analyst");
 check(!fs.readFileSync(outFile("04-analysis/run.py"), "utf8").includes("/Users/"), "the analyst fixes hard-coded paths to use relative source paths");
-check(stages["分析执行"] === (withTools && !sourceDrift ? "passed" : "issues"), "analysis status reflects both portability and the source-integrity boundary");
+check(stages["分析执行"] === (withTools && !sourceDrift && !figureSourceRepairExpected ? "passed" : "issues"), "analysis status reflects both portability and the source-integrity boundary");
 check(result.metrics.statsReview.pendingMinorNotes === 1 && result.metrics.peerReview.pendingMinorNotes === 1 && result.findings.filter((f) => f.what.includes("minor")).length === 2, "minor review notes are retained until their closure is verified");
 check(visualCheckCount === 2, "figure revision is followed by a second independent visual check");
 check(visualRecheckPass
@@ -620,8 +655,8 @@ const expectedFigureJournal = figureTargetOverride ? "Explicit Test Journal" : "
 check(calls.some((c) => c.name.startsWith("ArtDir") && c.system.includes(`按目标期刊（${expectedFigureJournal}）`) && c.prompt.includes(`目标期刊：${expectedFigureJournal}`)) && calls.some((c) => c.name.startsWith("VisualQA") && c.system.includes(`逐张检查 ${expectedFigureJournal} 规范`)), "figure artist and visual reviewer share the same effective journal including explicit overrides");
 const sourceIntegrity = result.metrics.deterministic.sourceIntegrity;
 if (withTools) {
-  check(sourceIntegrity?.available === true && sourceIntegrity.unchanged === !sourceDrift, "source integrity compares the current analysis/SAP source snapshot with the frozen one");
-  if (sourceDrift) {
+  check(sourceIntegrity?.available === true && sourceIntegrity.unchanged === !(sourceDrift || figureSourceRepairExpected), "source integrity compares the current analysis/SAP source snapshot with the frozen one");
+  if (sourceDrift || figureSourceRepairExpected) {
     check(sourceIntegrity.changed.some((s) => s.endsWith("run.py")) && result.metrics.reproFailed === true, "post-analysis source drift invalidates the prior reproducibility claim even when the output manifest matches");
     check(result.notCovered.some((s) => s.includes("源") && /变化|改动|修改/.test(s)), "post-analysis source drift is disclosed in notCovered");
     check(["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes('"sourceIntegrity"') && c.prompt.includes('"unchanged":false') && c.prompt.includes("run.py"))), "the audit package and summary receive the changed-source boundary");
@@ -632,6 +667,49 @@ if (withTools) {
 
 if (auditFile || badAuditFile) check(calls.some((c) => c.name.startsWith("CiteAudit") && c.prompt.startsWith("修订后只复核") && c.prompt.includes("完成后只回复一行")), "targeted audit returns a file status string instead of a nested inline object schema");
 if (auditFileMissing) check(fs.readFileSync(outFile("tool-records/citation-audit-recheck.json"), "utf8").trim() === "null" && auditLedger.entries[7].accuracy === "unsupported", "a missing new response cannot reuse a stale successful file");
+if (auditFileFlat && !auditFileFlatInvalid) check(auditLedger.entries[7].accuracy === "supported" && auditLedger.entries[8].accuracy === "supported" && !auditLedger.issues.some((s) => /无稳定键|缺失或重复/.test(s)), "flat and mixed wrapped audit entries retain their explicit keys and pass the same validated merge");
+if (auditFileFlatInvalid) check(auditLedger.entries[7].accuracy === "unsupported" && auditLedger.entries[8].accuracy === "overstated" && auditLedger.issues.some((s) => s.includes("A0008") && s.includes("无效")) && auditLedger.issues.some((s) => s.includes("A0009") && s.includes("重复")) && auditLedger.issues.some((s) => s.includes("A9999")) && auditLedger.issues.some((s) => s.includes("无稳定键")), "flat transport preserves missing-key, duplicate, out-of-scope and invalid-enum protections without clearing the initial problems");
+if (auditInlineReference) {
+  // The no-tools CI path still exercises the actual workflow helpers with local
+  // bibliographic identities; it must not turn into a prompt-only assertion.
+  const helperSource = src.slice(src.indexOf("const idsInText ="), src.indexOf("const saveAudit ="));
+  const normSource = src.slice(src.indexOf("const normKey ="), src.indexOf("const normTitle ="));
+  const helperJs = ts.transpileModule(`${helperSource}\n${normSource}\nreturn { prepareAudit, missingAuditReferences };`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const helper = new Function("OUT", helperJs)(OUT);
+  const references = draftV1.split("## References\n\n")[1].trim().split("\n").map((text) => ({ label: text.match(/^\d+/)[0], text, ids: text.startsWith("7.") ? [] : [`PMID:local-${text.match(/^\d+/)[0]}`] }));
+  const points = JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).entries;
+  const initial = helper.prepareAudit({ entries: points, problems: 0, auditPath: "unused" }, references).entries;
+  const labels = (entry) => (entry.auditReferences ?? []).map((r) => r.label).sort().join(",");
+  check(labels(initial[4]) === "5" && labels(initial[5]) === "6,7" && labels(initial[6]) === "5,6,7", "initial source binding recognizes a later citation prefix, adjacent groups and numeric ranges");
+  check(labels(initial[0]) === "1", "brackets in the claim body cannot become extra reference bindings");
+  const book = references.find((r) => r.label === "7");
+  const bookRecheck = { ...initial[6], resolvedSource: "Cohen 1988（另有未核实数字版DOI:10.9999/book）" };
+  check(helper.missingAuditReferences([{ ...book, label: "5", text: book.text.replace(/^7\./, "5.") }], [bookRecheck], null).length === 0 && (!withTools || !auditLedger.issues.some((s) => s.includes("参考文献 5 "))), "an audited unidentified book remains covered after reference renumbering by its original bibliographic identity");
+}
+if (figureSourceShape) {
+  const historyPath = outFile("tool-records/figure-reviews.json");
+  const history = fs.existsSync(historyPath) ? JSON.parse(fs.readFileSync(historyPath, "utf8")) : null;
+  check(figureSourceRepairCount === 1 && visualCheckCount === 2 && history?.sourceRepairs === 1, "malformed object or null source-issue states trigger one bounded repair without an iterable error");
+  check(history?.openSourceIssues.some((s) => /无效|结构|状态|未确认/.test(s)) && stages["图表规范化"] === "issues" && result.notCovered.some((s) => s.includes("图表原分析计算错误未关闭")) && result.findings.some((f) => f.what.includes("图表原分析") && f.status === "unconfirmed"), "a persistently malformed source-status response remains unconfirmed and blocks visual approval");
+}
+if (figureSourceLate) {
+  const historyPath = outFile("tool-records/figure-reviews.json");
+  const history = fs.existsSync(historyPath) ? JSON.parse(fs.readFileSync(historyPath, "utf8")) : null;
+  check(figureSourceRepairCount === 0 && history?.sourceRepairs === 0 && history.openSourceIssues.includes(FIGURE_SOURCE) && result.metrics.figureReview?.openSourceIssues === 1, "a source error first found in the last visual check stays open without adding another analyst repair round");
+  check(writerDraftPrompt.includes(FIGURE_SOURCE) && writerDraftPrompt.includes('"figuresVerified":false') && writerDraftPrompt.includes(ANALYSIS_CAVEAT) && writerDraftPrompt.includes('"caveats"'), "the writer receives the actual late source error, failed figure state and original analysis caveats even when keyFindings contains no error text");
+  check(stages["图表规范化"] === "issues" && result.notCovered.some((s) => s.includes(FIGURE_SOURCE)) && result.findings.some((f) => f.evidence === FIGURE_SOURCE), "a late source error cannot be cleared by visual passed=true or omitted from final findings");
+}
+if (figureSourceError) {
+  const repairs = calls.filter((c) => c.name.startsWith("Analyst") && c.prompt.startsWith("图表原分析计算错误，必须正式修订（一次）"));
+  const reviews = calls.filter((c) => c.name.startsWith("StatRev") && c.prompt.startsWith("图表原分析修订后请独立复核"));
+  const historyPath = outFile("tool-records/figure-reviews.json");
+  const history = fs.existsSync(historyPath) ? JSON.parse(fs.readFileSync(historyPath, "utf8")) : null;
+  check(figureSourceRepairCount === 1 && repairs.length === 1 && repairs[0].prompt.includes(FIGURE_SOURCE) && reviews.length === 1, "an original figure calculation error triggers exactly one formal analyst repair and independent statistical re-review even when visual QA passed");
+  check(history?.sourceRepairs === 1 && history.history.length === 2 && result.metrics.figureReview?.sourceRepairs === 1 && result.metrics.figureReview?.openSourceIssues === (figureSourcePersistent ? 1 : 0), "original and revised figure judgments are archived and unresolved source issues remain in metrics");
+  check(writerDraftPrompt.includes(figureSourcePersistent ? "原图源码问题仍未关闭" : "原图源码已正式修订") && calls.some((c) => c.name.startsWith("ArtDir") && c.prompt.startsWith("视觉复核未通过") && c.prompt.includes(FIGURE_SOURCE)), "the writer and figure repair receive updated full analysis metadata and the original source problem");
+  check(stages["图表规范化"] === (figureSourcePersistent ? "issues" : "passed") && (figureSourcePersistent ? result.notCovered.some((s) => s.includes("图表原分析计算错误未关闭")) && result.findings.some((f) => f.evidence === FIGURE_SOURCE && f.status === "unconfirmed") : !result.notCovered.some((s) => s.includes("图表原分析计算错误未关闭"))), "source problems cannot pass through visual approval or disappear from final disclosures after the bounded repair");
+  if (figureSourcePersistent) check(result.metrics.statsReview.openMajors === 1 && history.openSourceIssues.includes(FIGURE_SOURCE) && ["Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.prompt.includes('"figuresVerified":false') && c.prompt.includes(FIGURE_SOURCE))), "an unresolved source error remains visible to the audit package and delivery summary rather than being accepted as a presentation-only change");
+}
 if (auditBibliography && !auditBibliographyUnconfirmed && !auditBibliographyHard) check(JSON.parse(fs.readFileSync(outFile("tool-records/citation-audit-initial.json"), "utf8")).problems === 3 && auditLedger.entries[0].bibliography === "match" && calls.some((c) => c.name.startsWith("Writer") && c.prompt.includes("首作者与期刊错误")), "a supported claim with a mismatched bibliography is corrected and independently rechecked");
 if (auditBibliographyHard) check(auditLedger.entries[0].retractionStatus === "concern" && result.findings.some((f) => f.what.includes(`引文深审问题：${GOOD[0].id}`) && f.status === "verified" && f.severity === "high"), "a bibliography mismatch cannot downgrade a concurrent expression-of-concern failure");
 if (auditBibliographyUnconfirmed) check(auditLedger.entries[0].bibliography === "mismatch" && result.metrics.citationAudit.problems >= 1 && result.findings.some((f) => f.evidence.includes("首作者与期刊错误") && f.status === "unconfirmed" && f.severity === "medium"), "an unknown bibliography recheck cannot clear a confirmed initial mismatch");
@@ -643,6 +721,7 @@ if (statsSummaryPersistent) {
 }
 if (largeToolOutput) check(fs.statSync(outFile("tool-records/sources-before.json")).size > 262144 && result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.sourceIntegrity.available === false, "oversized tool output stays on disk and falls back without killing the run or claiming snapshot verification");
 check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("完整回归模型残差")) && calls.some((c) => c.name.startsWith("ArtDir") && c.system.includes("CPR")) && calls.some((c) => c.name.startsWith("VisualQA") && c.system.includes("完整模型残差")), "statistical and visual reviewers check the actual plot formula rather than copying a wrong original");
+check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("严格code-to-data") && c.system.includes("禁止grep/head/cat原始CSV") && c.system.includes("核对布尔")), "the statistical reviewer checks raw data through code and aggregate or boolean results without exposing CSV rows");
 const keep = process.argv.includes("--keep");
 console.log(`\n${failures.length === 0 ? "ALL PASS" : `${failures.length} FAILED`} (${withTools ? "with tools" : "no tools"}${keep ? `; workspace kept at ${ws}` : ""})`);
 if (!keep) fs.rmSync(tmp, { recursive: true, force: true });
