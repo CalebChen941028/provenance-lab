@@ -359,8 +359,8 @@ interface CitationAuditEntry {
   necessity: "necessary" | "redundant" | "wrong-context";
   /** 撤稿状态审计：clean=正常；retracted=已撤稿；concern=编辑关注声明；corrected=已有更正/勘误（引用时注明）；unknown=未能核实。 */
   retractionStatus: "clean" | "retracted" | "concern" | "corrected" | "unknown";
-  /** 作者、题名、期刊、年份卷页等题录核对；旧账本缺省视为unknown，不代表已核验。 */
-  bibliography?: "match" | "mismatch" | "unknown";
+  /** 作者、题名、期刊、年份卷页等题录核对；新响应必填，历史账本缺省仍视为unknown，不代表已核验。 */
+  bibliography: "match" | "mismatch" | "unknown";
   /** 一句话结论与建议动作（保留/改写陈述/换原始源/删除）。 */
   note: string;
 }
@@ -482,6 +482,24 @@ const writeFile = async (path: string, content: string): Promise<boolean> => {
   const r = await world.run("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" > "$1"', "sh", path, content]);
   return r.exitCode === 0;
 };
+// 文件字段不能夹带说明。优先验证原路径，只有明确的规范路径后缀说明可回落。
+const outputPathNotes: { reported: string; path: string }[] = [];
+const outputPath = async (reported: string, expected: string): Promise<string> => {
+  const raw = reported.trim();
+  const exact = await world.run("sh", ["-c", 'test -f "$1"', "sh", raw]);
+  if (exact.exitCode === 0) return raw;
+  const suffix = raw.startsWith(expected) ? raw.slice(expected.length).trim() : "";
+  if (/^(?:（[\s\S]*）|\([\s\S]*\))$/.test(suffix)) {
+    const candidate = await world.run("sh", ["-c", 'test -f "$1"', "sh", expected]);
+    if (candidate.exitCode === 0) {
+      outputPathNotes.push({ reported, path: expected });
+      await writeFile(`${TOOLS_OUT}/output-paths.json`, JSON.stringify(outputPathNotes, null, 2));
+      log(`产物路径已核对并分离说明：${reported} → ${expected}`);
+      return expected;
+    }
+  }
+  throw new Error(`产物路径不存在或不是普通文件：${reported}；规范路径 ${expected} 未获匹配，不能猜测或制造替代文件`);
+};
 const plab = async <T>(argv: string[]): Promise<T | null> => {
   // world.run限制输出大小；完整结果仍由--out保留，回读超限不得击穿整轮。
   const guarded = `umask 077; plab_stdout=$(mktemp) || exit 1; plab_stderr=$(mktemp) || { rm -f "$plab_stdout"; exit 1; }; trap 'rm -f "$plab_stdout" "$plab_stderr"' EXIT; ${PLAB_CMD} >"$plab_stdout" 2>"$plab_stderr"; plab_exit=$?; if [ "$(wc -c < "$plab_stdout")" -gt 240000 ]; then printf '%s\\n' 'plab stdout exceeds readback limit; full result remains in --out file' >&2; head -c 19000 "$plab_stderr" >&2; exit 1; fi; cat "$plab_stdout"; head -c 20000 "$plab_stderr" >&2; exit "$plab_exit"`;
@@ -549,7 +567,7 @@ interface PlabManifest {
 // 引用深审条目中出现的 PMID/DOI（深审员替换的原始文献可进入终检白名单）
 const idsInText = (text: string): string[] => [
   ...[...text.matchAll(/PMID\s*[:：]?\s*(\d{1,9})/gi)].map((m) => `PMID:${m[1]}`),
-  ...[...text.matchAll(/\b(10\.\d{4,9}\/[^\s`"<>，。；：、（）【】《》「」]+)/gi)].map((m) => `DOI:${m[1].replace(/[.,;:)\]}>'"*]+$/, "").toLowerCase()}`),
+  ...[...text.matchAll(/\b(10\.\d{4,9}\/[^\s`"<>，。；：、（）【】《》「」〔〕]+)/gi)].map((m) => `DOI:${m[1].replace(/[.,;:)\]}>'"*]+$/, "").toLowerCase()}`),
 ];
 const auditSemanticProblem = (e: CitationAuditEntry): boolean =>
   e.isPrimary !== "primary" || e.accuracy !== "supported" || e.necessity !== "necessary" || e.retractionStatus === "retracted" || e.retractionStatus === "concern";
@@ -1032,9 +1050,11 @@ let citation = withDeterministic(
 );
 keepUnboundNotes(citation);
 let citationFailures: string[] = citation.passed ? [] : citation.failures;
+let firstCorrectionIds: string[] = [];
 if (!citation.passed) {
   log(`引文核查发现 ${citation.failures.length} 处失败，退回证据综合员修正`);
   const beforeCorrection = evidence;
+  firstCorrectionIds = evidence.included.filter((p) => citation.failedIds.some((id) => gateIdsMatch(id, p.id, gateRecs)) && !initialHardFailures.some((f) => gateIdsMatch(f.id, p.id, gateRecs))).map((p) => p.id);
   const removableHardIds = hardFailures(evidence.included, gateRecs).map((f) => f.id);
   evidence = await synthesizer.ask<EvidenceTable>(
     `引文核查发现以下失败项，请修正证据表（只有确定性不存在/撤稿/关注可撤掉；其余更正题录、design、finding等出错字段并保留原ID，不得静默删条或换ID，更新 ${OUT}/02-evidence-table.md）：\n${citation.failures.join("\n")}`,
@@ -1058,7 +1078,7 @@ const failuresAbout = (ids: string[], all: string[]): string[] => {
   return hit.length > 0 ? hit : all;
 };
 let gateExcludedIds: string[] = initialHardFailures.map((f) => f.id);
-let gateCorrectedIds: string[] = [];
+let gateCorrectedIds: string[] = citation.passed ? firstCorrectionIds.filter((id) => !isGatePending(id)) : [];
 if (!citation.passed) {
   const hardKeys = new Set(hardFailures(evidence.included, gateRecs).map((d) => normKey(d.id)));
   const persistent = citation.failedIds.filter((id) => hardKeys.has(normKey(id)));
@@ -1152,6 +1172,7 @@ const statistician = agent("Stats·统计方法学家", {
 const sap = await statistician.ask<StatPlan>(
   `研究问题：${finalRq.question}\n设计与假设：${finalRq.design}；${finalRq.hypotheses.join("；")}\n数据条件：${dataPath ? `真实数据 ${dataPath}` : "模拟数据演示"}\n证据表要点：${JSON.stringify(citableEvidence.slice(0, 8))}\n把 SAP 写入 ${OUT}/03-sap.md；设计阶段若计算样本量、效能或 MC 校准，必须把计算脚本、固定种子、依赖版本、运行命令与汇总输出一并冻结在 ${OUT}/03-sap-code/，在 SAP 中逐值引用路径；不得只留会话临时文件或报告一个无法重算的数字。该目录随审计包交付，后续分析不得覆盖冻结版本。runner须自行创建空输出/缓存目录，能从仅有脚本与依赖定义的干净目录启动；不得依赖预存outputs/。并返回。${langNote}`,
 );
+sap.sapPath = await outputPath(sap.sapPath, `${OUT}/03-sap.md`);
 stage("统计计划", "passed");
 record(`SAP 定稿：主分析 ${sap.primaryAnalysis.split("。")[0]}；校正 ${sap.corrections}`);
 if (checkpoints.includes("sap")) {
@@ -1316,9 +1337,14 @@ phase("Draft");
 stage("论文撰写", "in-progress");
 const writer = agent("Writer·医学写作者", {
   system:
-    `你是医学期刊写作者（STORM 式大纲驱动：先定大纲再成文）。**动笔前先读 ${SKILLS}/natural-voice/SKILL.md 并严格执行其语态规范**：去AI腔/去翻译腔/去伪学术黑话；直陈语气、术语全篇统一、数据句式紧贴解释；局限写成适用边界（scope conditions）而非防御性自贬（报告规范要求如实报告的局限仍报告，但用边界语态）；英文写作遵循 Part 2（封锁 AI 高频词、以证据强度选动词、一段一个动作、统计写法带效应量与 CI）；成稿前过其 Part 3 自检清单。按 ${finalRq.guideline} 规范与 IMRaD 结构撰写：引言（ funnel 逻辑，落点在研究空白）、方法（可复现细节，直接引用 SAP 与脚本）、结果（先总体后分层，每个结论带效应量与 95% CI，指向图表${figurePolish ? "，优先引用 figures-polished/ 规范化版本" : ""}）、讨论（结果解释、与证据表内文献逐条对照、局限、意义）。结构式摘要。引用规则：只允许两类引用——已核查证据表内的文献（带 PMID/DOI，或私有库条目的 "私有库:<文件名>" 标注）或本研究自身结果；绝不引入未核查的新文献，绝不编造引文。文献状态纪律：**绝不把撤稿（retracted）或编辑关注（concern）状态的文献作为证据引用**——如确需提及（如讨论该研究被撤稿的启示），必须显式标注其撤稿状态且不作为结论支撑；带更正/勘误（corrected）的文献可引用但注明"本文引用更正后版本"。${analysis.realData ? "" : "全文用模拟数据演示口径撰写，标题页显式标注。"}标题页与文末还须含**伦理声明**占位：数据来源、是否经伦理委员会批准/豁免（批准号留空由作者填写）、知情同意状态——作者不得删除该节。标题页必须附 AI 使用声明草稿：如实注明本稿件由 AI 辅助生成（文献检索、分析代码、初稿撰写），引用经逐条核查，全部结论需作者人工核验并承担学术责任；具体措辞按目标期刊的 AI 披露政策调整，作者不得删除该声明。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。全文 IMRaD 编号章节+结构式摘要+图表编号引用+回应信用 Reviewer N → Comment N.x → Response 逐条编号格式。把初稿写入文件后返回。`,
+    `你是医学期刊写作者（STORM 式大纲驱动：先定大纲再成文）。**动笔前先读 ${SKILLS}/natural-voice/SKILL.md 并严格执行其语态规范**：去AI腔/去翻译腔/去伪学术黑话；直陈语气、术语全篇统一、数据句式紧贴解释；局限写成适用边界（scope conditions）而非防御性自贬（报告规范要求如实报告的局限仍报告，但用边界语态）；英文写作遵循 Part 2（封锁 AI 高频词、以证据强度选动词、一段一个动作、统计写法带效应量与 CI）；成稿前过其 Part 3 自检清单。按 ${finalRq.guideline} 规范与 IMRaD 结构撰写：引言（ funnel 逻辑，落点在研究空白）、方法（可复现细节，直接引用 SAP 与脚本）、结果（先总体后分层，每个结论带效应量与 95% CI，指向图表${figurePolish ? "，优先引用 figures-polished/ 规范化版本" : ""}）、讨论（结果解释、与证据表内文献逐条对照、局限、意义）。结构式摘要。引用规则：只允许两类引用——已核查证据表内的文献（带 PMID/DOI，或私有库条目的 "私有库:<文件名>" 标注）或本研究自身结果；绝不引入未核查的新文献，绝不编造引文。已登记的SAP方法学来源按同一白名单规则引用；已核PMID/DOI须原样写入参考文献，不能省略而使终检与状态审计失去身份；未取到标识符的专著如实标未确认，不得编造ID。文献状态纪律：**绝不把撤稿（retracted）或编辑关注（concern）状态的文献作为证据引用**——如确需提及（如讨论该研究被撤稿的启示），必须显式标注其撤稿状态且不作为结论支撑；带更正/勘误（corrected）的文献可引用但注明"本文引用更正后版本"。${analysis.realData ? "" : "全文用模拟数据演示口径撰写，标题页显式标注。"}标题页与文末还须含**伦理声明**占位：数据来源、是否经伦理委员会批准/豁免（批准号留空由作者填写）、知情同意状态——作者不得删除该节。标题页必须附 AI 使用声明草稿：如实注明本稿件由 AI 辅助生成（文献检索、分析代码、初稿撰写），引用经逐条核查，全部结论需作者人工核验并承担学术责任；具体措辞按目标期刊的 AI 披露政策调整，作者不得删除该声明。产物呈现遵循 natural-voice Part 5 学术呈现规范：编号章节、编号图表（Table/Figure N）配规范表头与标准图注、Vancouver 参考文献、APA/JARS 统计量格式、正式书面语——禁止零散碎片化与笔记式表达。全文 IMRaD 编号章节+结构式摘要+图表编号引用+回应信用 Reviewer N → Comment N.x → Response 逐条编号格式。把初稿写入文件后返回。`,
 });
-let draft = await writer.ask<DraftResult>(
+const askDraft = async (prompt: string): Promise<DraftResult> => {
+  const result = await writer.ask<DraftResult>(prompt);
+  result.draftPath = await outputPath(result.draftPath, `${OUT}/06-draft.md`);
+  return result;
+};
+let draft = await askDraft(
   `立题书：${JSON.stringify(finalRq)}\n证据表白名单：见 ${evidence.evidencePath}（保留 ${evidence.included.length} 篇记录，其中 ${gatePendingIds.size} 篇待修正复核，逐条从文件读取状态，只允许非待确认项，禁止引用白名单外文献）${gateDeniedIds.length > 0 ? `\n以下条目已剔除或待修正复核，即使保留在证据表记录中也禁止引用：${gateDeniedIds.join("、")}` : ""}\nSAP：见 ${sap.sapPath}（从文件读取变量字典与方法依据）\n分析结果要点：${JSON.stringify({ realData: analysis.realData, keyFindings: analysis.keyFindings, decisions: analysis.decisions, scriptPath: analysis.scriptPath, outputsPath: analysis.outputsPath, caveats: analysis.caveats, reproducibility: verifyCommand ? analysis.reproducibility : "分析员自报（见99-metrics），不得作为代码核验结论或采信自报文件数" })}\n图表当前状态：${JSON.stringify({ figuresVerified, figureSourceIssues })}；原分析caveats和未关源错误须如实写入限制，不引用涉错图作已核验结果，也不得称已正式重冻结。\n统计审稿遗留问题（写作时注意）：${JSON.stringify(statsReview)}\n目标期刊：${finalRq.journals.join("、")}\n把初稿写入 ${OUT}/06-draft.md 并返回。${langNote}`,
 );
 stage("论文撰写", "passed");
@@ -1372,9 +1398,9 @@ while (round < 2) {
   if (openMajors.length === 0) break;
   if (round > 1 && stalled(allReviews)) {
     const diag = await diagnoser.ask<string>(`两轮评审同样的主要问题未解决，修订未触及根因：\n${openMajors.join("\n")}\n请读初稿与相关文件诊断根因。`);
-    draft = await writer.ask<DraftResult>(`评审意见两轮未变。根因诊断：\n${diag}\n请按诊断修订初稿（更新 ${OUT}/06-draft.md）并返回。`);
+    draft = await askDraft(`评审意见两轮未变。根因诊断：\n${diag}\n请按诊断修订初稿（更新 ${OUT}/06-draft.md）并返回。`);
   } else {
-    draft = await writer.ask<DraftResult>(
+    draft = await askDraft(
       `同行评审主要问题（第 ${round} 轮），请逐条修订初稿（更新 ${draft.draftPath}）后返回：\n${openMajors.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n次要问题尽量一并处理：${JSON.stringify(allReviews.flatMap((r) => r.minorIssues).slice(0, 8))}`,
     );
   }
@@ -1448,7 +1474,7 @@ let removedAuditEntries: { entry: CitationAuditEntry; note: string }[] = [];
 if (citationAudit.problems > 0) {
   log(`引文深审发现 ${citationAudit.problems} 条问题引用，交写作员修正`);
   const problemEntries = citationAudit.entries.filter(auditProblem);
-  draft = await writer.ask<DraftResult>(
+  draft = await askDraft(
     `引文深审发现以下问题引用，请逐条处理（换原始源文献/改写陈述使其与原文一致/删除冗余；更新 ${draft.draftPath}；替换后的引用须来自证据表白名单或深审员 note 中给出的原始文献）：\n${JSON.stringify(problemEntries)}`,
   );
   const recheckPath = `${TOOLS_OUT}/citation-audit-recheck.json`;
@@ -1516,7 +1542,7 @@ let finalCheck = await runFinalCheck("");
 let finalIssues = finalCheckIssues(finalCheck);
 if (finalIssues.length > 0) {
   log(`引文终检发现 ${finalIssues.length} 处问题，交写作员修正`);
-  draft = await writer.ask<DraftResult>(
+  draft = await askDraft(
     `引文终检（代码确定性检查）发现以下问题，请逐条处理并更新 ${draft.draftPath}：白名单外的引用删除或换成证据表内文献（确无替代时删去该论断）；统计量与 p 值不自洽的，回到 ${analysis.outputsPath} 核对原始输出后改正，以分析输出为准，绝不为凑一致改动统计量；属于单侧检验等工具识别不了的合法写法时保留原文。\n${finalIssues.map((s, i) => `${i + 1}. ${s.text}`).join("\n")}`,
   );
   finalCheck = await runFinalCheck("-r2");
@@ -1558,7 +1584,7 @@ const papersNotDownloaded = oaFetch ? oaFetch.notDownloaded.length : library.not
 const unknownLicenses = oaFetch?.downloaded.filter((p) => !p.license).length ?? 0;
 const unresolvedEvidence = (gateRecs ?? []).filter((r) => r.found === null || (r.found === true && r.status === "unknown"));
 stage("文献归档", "passed");
-record(`文献归档：下载 ${papersDownloaded} 篇开放获取 PDF${oaFetch ? "（确定性工具，PMC OA 数据集/OpenAlex OA 位置；许可证未知 ${unknownLicenses} 篇）" : ""}，${papersNotDownloaded} 篇列入待获取清单（08）`);
+record(`文献归档：下载 ${papersDownloaded} 篇开放获取 PDF${oaFetch ? `（确定性工具，PMC OA 数据集/OpenAlex OA 位置；许可证未知 ${unknownLicenses} 篇）` : ""}，${papersNotDownloaded} 篇列入待获取清单（08）`);
 
 // 最终产物快照与执行材料状态分别核验；源码没变也不等于独立重跑通过。
 const sourceFinal = await plab<PlabSourceSnapshot>(["source-snapshot", "--root", OUT, "--out", `${TOOLS_OUT}/sources-final.json`]);
@@ -1630,13 +1656,13 @@ const summaryMd = await scribe.ask<string>(
 );
 await artifact.markdown("summary", summaryMd, { title: "科研流水线总结" });
 await artifact.file("draft", draft.draftPath, { title: "论文初稿", description: `按 ${finalRq.guideline} 规范撰写的 IMRaD 初稿`, primary: true });
-await artifact.file("evidence", evidence.evidencePath, { title: "证据表" });
+await artifact.file("evidence", await outputPath(evidence.evidencePath, `${OUT}/02-evidence-table.md`), { title: "证据表" });
 await artifact.file("sap", sap.sapPath, { title: "统计分析计划（预注册式）" });
 await artifact.file("outputs", analysisEntryPath, { title: "分析脚本与输出（入口说明）" });
-await artifact.file("rebuttal", rebuttal.rebuttalPath, { title: "答辩拷问与预审回应信" });
-await artifact.file("audit", auditPack.auditPath, { title: "审计追踪与人工校对包", description: "Mermaid 流程图、变量字典、方法决策表、关卡结论与免责声明" });
-await artifact.file("manifest", auditPack.manifestPath, { title: "产出清单（动了啥/没动啥/在哪）" });
-await artifact.file("papers", library.manifestPath, { title: "文献归档清单", description: `已下载 ${papersDownloaded} 篇 OA PDF；${papersNotDownloaded} 篇待获取（Vancouver 格式清单）` });
+await artifact.file("rebuttal", await outputPath(rebuttal.rebuttalPath, `${OUT}/07-rebuttal.md`), { title: "答辩拷问与预审回应信" });
+await artifact.file("audit", await outputPath(auditPack.auditPath, `${OUT}/05-audit-trail.md`), { title: "审计追踪与人工校对包", description: "Mermaid 流程图、变量字典、方法决策表、关卡结论与免责声明" });
+await artifact.file("manifest", await outputPath(auditPack.manifestPath, `${OUT}/00-README.md`), { title: "产出清单（动了啥/没动啥/在哪）" });
+await artifact.file("papers", await outputPath(library.manifestPath, `${OUT}/08-papers-manifest.md`), { title: "文献归档清单", description: `已下载 ${papersDownloaded} 篇 OA PDF；${papersNotDownloaded} 篇待获取（Vancouver 格式清单）` });
 
 const findings: WorkflowReport["findings"] = [];
 for (const issue of finalIssues) findings.push({ what: `引文终检遗留：${issue.text.slice(0, 80)}`, evidence: issue.text, severity: issue.severity, status: issue.severity === "high" ? "verified" : "unconfirmed" });

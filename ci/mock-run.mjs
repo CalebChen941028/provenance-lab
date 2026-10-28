@@ -47,6 +47,11 @@ const WF = process.env.PLAB_WORKFLOW || path.join(ROOT, "adapters/zcode/workflow
 const withTools = !process.argv.includes("--no-tools");
 // --solo: standalone citation-audit mode on the L1 seeded draft, scored by evaluation/score_l1.py
 const solo = process.argv.includes("--solo");
+const annotatedPaths = process.argv.includes("--annotated-paths");
+const literalPath = process.argv.includes("--literal-path");
+const missingSap = process.argv.includes("--missing-sap");
+const annotatedDoi = process.argv.includes("--annotated-doi");
+const firstCorrection = process.argv.includes("--first-correction");
 // Exercises coverage reporting with real tools but no complete statistical report.
 const noStats = process.argv.includes("--no-stats");
 // Run with --no-tools to exercise an auditor repeating an out-of-scope old failure.
@@ -188,6 +193,7 @@ const archivedContext = () => {
   }
 };
 
+const decorateDraft = (text) => annotatedDoi ? text.replaceAll("10.1111/j.2517-6161.1995.tb02031.x", "10.1111/j.2517-6161.1995.tb02031.x.〔SAP；方法依据〕") : text;
 function respond(name, prompt, opts) {
   calls.push({ name, prompt, system: opts.system ?? "" });
   const role = name.split("·")[0];
@@ -249,6 +255,9 @@ function respond(name, prompt, opts) {
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
     case "CiteGate": {
+      if (firstCorrection) return prompt.startsWith("修正后的证据表")
+        ? { passed: true, checked: 8, failures: [], failedIds: [] }
+        : { passed: false, checked: 8, failures: [`${GOOD[1].id}：可修正的阴性转述错误，修正后保留`], failedIds: [GOOD[1].id] };
       if (gateAmbiguousId) return { passed: false, checked: 6, failures: ["PMID:27802500 与 DOI:10.9999/unconfirmed-other-paper：涉及两篇身份，待明确失败对象"], failedIds: [] };
       if (grillContext && !withTools) return { passed: false, checked: 6, failures: [UNBOUND_NOTE], failedIds: [] };
       if (gateRemoveHard) return { passed: true, checked: prompt.startsWith("修正后的证据表") ? 4 : 6, failures: [], failedIds: [] };
@@ -299,8 +308,9 @@ function respond(name, prompt, opts) {
       return staleRecheck || gateFinalNewError || gatePersistentError || badGateRecheck ? { passed: false, checked: 8, failures: [`${GOOD[0].id}：首轮待更正问题`], failedIds: [GOOD[0].id] } : { passed: true, checked: 8, failures: [], failedIds: [] };
     }
     case "Stats":
-      w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
-      return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: `${OUT}/03-sap.md` };
+      if (!missingSap) w(`${OUT}/03-sap.md`, "# SAP\n多重比较：BH-FDR（doi:10.1111/j.2517-6161.1995.tb02031.x）\n");
+      if (literalPath) w(`${OUT}/03-sap (frozen).md`, "# SAP with parentheses in a real filename\n");
+      return { primaryAnalysis: "Pearson 相关。", secondaryAnalyses: [], effectMeasures: "r", corrections: "BH-FDR", missingData: "MI", power: "0.8", assumptions: "-", variables: [], methodRationale: [], sapPath: literalPath ? `${OUT}/03-sap (frozen).md` : annotatedPaths || missingSap ? `${OUT}/03-sap.md（冻结计算包：${OUT}/03-sap-code/，含说明）` : `${OUT}/03-sap.md` };
     case "Analyst": {
       const statsRepair = prompt.includes("统计审稿要求修改") || prompt.includes("统计审稿停滞");
       const figureRepair = prompt.startsWith("图表原分析计算错误，必须正式修订（一次）");
@@ -358,12 +368,12 @@ function respond(name, prompt, opts) {
         if (gateFinalNewError || gatePersistentError || badGateRecheck || staleRecheck) finalDraft = finalDraft.replace(/^2\. Zhang[^\n]*\n/m, "");
         if (badGateRecheck || staleRecheck) finalDraft = finalDraft.replace(/^3\. Carter[^\n]*\n/m, "");
         if (auditGroupReplacedSource) finalDraft = finalDraft.replace(/^3\. Carter[^\n]*\n/m, "");
-        w(`${OUT}/06-draft.md`, finalDraft);
+        w(`${OUT}/06-draft.md`, decorateDraft(finalDraft));
       } else if (!fs.existsSync(path.join(ws, OUT, "06-draft.md"))) {
         writerDraftPrompt = prompt;
-        w(`${OUT}/06-draft.md`, draftV1);
+        w(`${OUT}/06-draft.md`, decorateDraft(draftV1));
       }
-      return { draftPath: `${OUT}/06-draft.md`, abstract: "", sections: [], figures: [] };
+      return { draftPath: annotatedPaths ? `${OUT}/06-draft.md（成稿）` : `${OUT}/06-draft.md`, abstract: "", sections: [], figures: [] };
     }
     case "Examiner": {
       const context = archivedContext();
@@ -455,7 +465,8 @@ const runtime = {
     stages[o.stage] = o.status;
   },
   phase: () => {},
-  artifact: { board: () => {}, markdown: async () => {}, file: async (name, file) => { artifactFiles.push({ name, file }); } },
+  artifact: { board: () => {}, markdown: async () => {}, file: async (name, file) => { if (!fs.existsSync(path.isAbsolute(file) ? file : path.join(ws, file))) throw new Error("ArtifactSourceMissing: " + file);
+      artifactFiles.push({ name, file }); } },
   files: { read: async (p) => fs.readFileSync(path.join(ws, p), "utf8") },
   world: {
     run: async (cmd, argv) => {
@@ -472,7 +483,16 @@ const js = ts.transpileModule(wrapped, { compilerOptions: { target: ts.ScriptTar
 const modPath = path.join(tmp, "wf.mjs");
 fs.writeFileSync(modPath, js);
 const { default: wf } = await import(pathToFileURL(modPath).href);
-const result = await wf(runtime);
+let result;
+try { result = await wf(runtime); } catch (error) {
+  if (missingSap) {
+    const ok = String(error).includes("产物路径不存在") && !calls.some((c) => c.name.startsWith("Analyst"));
+    console.log(ok ? "PASS  missing canonical SAP stops before analysis without manufacturing an artifact" : `FAIL  ${error}`);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    process.exit(ok ? 0 : 1);
+  }
+  throw error;
+}
 
 // ── assertions ──────────────────────────────────────────────────────────────
 const failures = [];
@@ -722,6 +742,20 @@ if (statsSummaryPersistent) {
 if (largeToolOutput) check(fs.statSync(outFile("tool-records/sources-before.json")).size > 262144 && result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.sourceIntegrity.available === false, "oversized tool output stays on disk and falls back without killing the run or claiming snapshot verification");
 check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("完整回归模型残差")) && calls.some((c) => c.name.startsWith("ArtDir") && c.system.includes("CPR")) && calls.some((c) => c.name.startsWith("VisualQA") && c.system.includes("完整模型残差")), "statistical and visual reviewers check the actual plot formula rather than copying a wrong original");
 check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("严格code-to-data") && c.system.includes("禁止grep/head/cat原始CSV") && c.system.includes("核对布尔")), "the statistical reviewer checks raw data through code and aggregate or boolean results without exposing CSV rows");
+if (annotatedPaths) {
+  const sapArtifact = artifactFiles.find((a) => a.name === "sap");
+  check(sapArtifact?.file === `${OUT}/03-sap.md` && calls.some((c) => c.name.startsWith("Analyst") && !c.prompt.includes("03-sap.md（")), "annotated SAP is normalized before analysis and publication after verifying the canonical file");
+  check(artifactFiles.find((a) => a.name === "draft")?.file === `${OUT}/06-draft.md` && fs.existsSync(outFile("tool-records/output-paths.json")), "revised draft paths are normalized with an inspectable record before downstream use");
+}
+if (literalPath) check(artifactFiles.find((a) => a.name === "sap")?.file === `${OUT}/03-sap (frozen).md`, "an existing literal filename with parentheses is preserved instead of stripped");
+if (annotatedDoi) {
+  const extract = src.slice(src.indexOf("const idsInText ="), src.indexOf("const auditSemanticProblem ="));
+  const fn = new Function(ts.transpileModule(`${extract} return idsInText;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText)();
+  check(JSON.stringify(fn("10.1000/kept.〔证据表〕")) === JSON.stringify(["DOI:10.1000/kept"]), "workflow DOI extraction stops before the CJK source annotation");
+  if (withTools) check(result.metrics.deterministic.whitelist.outside === 0, "annotated allowed method DOI remains in the whitelist while actual outside sources are still corrected");
+}
+if (firstCorrection) check(result.metrics.citationGate.corrected === 1 && result.metrics.citationGate.excluded === 0 && result.metrics.citationGate.pending === 0, "a first-round problem independently cleared in round two counts as corrected and retained");
+check(!logs.some((s) => s.includes("${unknownLicenses}")), "paper archiving reports the numeric unknown-license count rather than a literal placeholder");
 const keep = process.argv.includes("--keep");
 console.log(`\n${failures.length === 0 ? "ALL PASS" : `${failures.length} FAILED`} (${withTools ? "with tools" : "no tools"}${keep ? `; workspace kept at ${ws}` : ""})`);
 if (!keep) fs.rmSync(tmp, { recursive: true, force: true });

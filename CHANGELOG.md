@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+- D46: keep source annotations out of DOI identity in both tool and workflow; preserve deny and alias checks.
+- Validate reported file paths before use, normalize only verified expected paths with trailing notes, and retain real parenthesized filenames. Require bibliography on fresh audits while preserving legacy unknowns.
+- Count explicitly cleared first-round citation repairs, tolerate bounded event persistence timing, and interpolate the unknown-license count. Record D45 acceptance and remaining real-run/L1 validation.
+
 ### 回归验收修复（D45）
 - 兼容深审复核文件中平铺和 {entry} 外壳条目，保留稳定键、枚举、删除依据和源身份检查；不按顺序或 DOI 猜配。
 - 从首审具体引用点解析中后置编号及组合范围并绑定当时文献身份，保留 none 禁扩白名单与语义覆盖边界。

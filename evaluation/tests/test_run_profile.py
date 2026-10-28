@@ -72,6 +72,18 @@ class RunProfile(unittest.TestCase):
         self.assertIn("事件段合计 45.00 分钟 / 段间隔 15.00 分钟", text)
         self.assertEqual(run[3], 300000)
 
+    def test_event_persistence_millisecond_skew_is_not_a_missing_history(self):
+        run = self.add_run("skew", 10, 40)
+        self.add_events("skew", [("run-started", 10), ("run-settled", 40)])
+        self.con.execute("update dwf_event set time_created=time_created+1")
+        span = run_profile.run_span(self.con, run)
+        self.assertEqual(span["lastSource"], "events")
+        self.assertEqual(span["activeMinutes"], 30)
+        self.con.execute("update dwf_event set time_created=time_created+2000")
+        span = run_profile.run_span(self.con, run)
+        self.assertIsNone(span["activeMinutes"])
+        self.assertEqual(span["lastSource"], "run-fields")
+
     def test_event_segments_cover_cached_chain_without_double_counting(self):
         self.add_run("first", 10, 30, 100000)
         run = self.add_run("last", 45, 70, 300000, "first")

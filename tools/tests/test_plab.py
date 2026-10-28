@@ -38,6 +38,10 @@ SCIPY_P = [
 
 
 class Identifiers(unittest.TestCase):
+    def test_cjk_annotation_is_not_part_of_doi(self):
+        self.assertEqual(plab.extract_ids("10.1038/ejcn.2014.50.〔证据表〕；10.1119/perc.2020.pr.Stang.〔来源；待补〕"),
+                         ["DOI:10.1038/ejcn.2014.50", "DOI:10.1119/perc.2020.pr.stang"])
+        self.assertEqual(plab.norm_id("10.1038/ejcn.2014.50.〔证据表〕"), ("doi", "10.1038/ejcn.2014.50"))
     def test_norm_id(self):
         self.assertEqual(plab.norm_id("PMID: 9500320"), ("pmid", "9500320"))
         self.assertEqual(plab.norm_id("9500320"), ("pmid", "9500320"))
@@ -75,6 +79,11 @@ class Cited(unittest.TestCase):
 
 
 class Whitelist(unittest.TestCase):
+    def test_annotation_does_not_change_identity_or_bypass_deny(self):
+        md = "## References\n1. A. 10.1000/allowed.〔证据表〕\n2. Same title A. 10.1000/outside.〔证据表〕\n3. C. 10.1000/denied.〔SAP〕\n"
+        r = plab.whitelist_check(md, ["10.1000/allowed", "10.1000/denied"], expand=False, deny=["10.1000/denied"])
+        self.assertEqual([x["label"] for x in r["outside"]], ["2", "3"])
+        self.assertEqual(r["identified"], 3)
     def test_outside_and_unidentified(self):
         md = "## References\n1. A. PMID: 111\n2. B. doi:10.1000/xyz\n3. Cohen J. Statistical power analysis. 1988.\n"
         r = plab.whitelist_check(md, ["PMID:111"], expand=False)

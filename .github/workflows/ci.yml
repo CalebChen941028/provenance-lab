@@ -29,6 +29,11 @@ jobs:
       - name: Mock run without tools (every gate must fall back)
         run: |
           node ci/mock-run.mjs --no-tools
+          node ci/mock-run.mjs --no-tools --annotated-paths
+          node ci/mock-run.mjs --no-tools --literal-path
+          node ci/mock-run.mjs --no-tools --missing-sap
+          node ci/mock-run.mjs --no-tools --annotated-doi
+          node ci/mock-run.mjs --no-tools --first-correction
           node ci/mock-run.mjs --no-tools --large-tool-output
           node ci/mock-run.mjs --no-tools --audit-file
           node ci/mock-run.mjs --no-tools --audit-file-flat

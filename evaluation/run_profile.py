@@ -35,7 +35,7 @@ def find_run(con: sqlite3.Connection, key: str) -> tuple:
 
 
 def event_segments(con: sqlite3.Connection, run: tuple) -> tuple[list[tuple], str | None]:
-    """Return complete start/settle pairs; partial histories cannot prove activity."""
+    """Pair complete events; allow <=1s persistence skew at run boundaries."""
     try:
         rows = con.execute(
             "select type, time_created from dwf_event where run_id = ? "
@@ -44,7 +44,7 @@ def event_segments(con: sqlite3.Connection, run: tuple) -> tuple[list[tuple], st
         ).fetchall()
     except sqlite3.OperationalError:
         return [], f"{run[0]}：起止事件表不可用"
-    if not rows or len(rows) % 2 or rows[0][1] != run[4] or rows[-1][1] != run[5]:
+    if not rows or len(rows) % 2 or abs(rows[0][1] - run[4]) > 1000 or abs(rows[-1][1] - run[5]) > 1000:
         return [], f"{run[0]}：起止事件不足以覆盖完整运行"
     segments = []
     for index in range(0, len(rows), 2):
