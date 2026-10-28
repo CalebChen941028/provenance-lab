@@ -338,6 +338,9 @@ interface Rebuttal {
   unanswered: string[];
 }
 
+// Shared by pipeline and standalone auditing; source status is relative to the claim.
+const citationSourcePolicy = "溯源按具体论断判定，不按文献类型一刀切：直接引用系统综述/meta分析自身的汇总结果、方法或新分析时，源文献就是该论断的直接出处，isPrimary=primary；借综述转述某项原始研究的发现，或把综述/meta分析冒充原始队列/试验时，isPrimary=secondary-needs-tracing并说明应回溯或纠正的来源/研究类型。不得仅因来源为meta分析就判问题。提交前逐条核对isPrimary/accuracy/necessity/retractionStatus/bibliography与note的处置是否一致；实际问题仍须标出，不能由保留建议自动清除字段中的问题。";
+
 interface CitationAuditEntry {
   /** 由编排代码分配的引用点稳定键；定向复核必须原样回传，不按 DOI 合并多个引用点。 */
   auditEntryId?: string;
@@ -349,7 +352,7 @@ interface CitationAuditEntry {
   resolvedSource: string;
   /** 核对依据的文本层级：fulltext = 开放获取全文；abstract = 仅摘要级；private = 私有库本地全文；none = 未取到任何文本。 */
   textLevel: "fulltext" | "abstract" | "private" | "none";
-  /** primary = 已是最原始源文献；secondary-needs-tracing = 综述转引、应回溯原始研究；untraceable = 定位不到。 */
+  /** primary = 当前论断的直接出处（含meta自身汇总结果）；secondary-needs-tracing = 转引原研或把综述冒充原研；untraceable = 定位不到。 */
   isPrimary: "primary" | "secondary-needs-tracing" | "untraceable";
   /** 原文中支撑该陈述的具体位置（如 Results 第 2 段 / Table 2 / Fig 1D）。 */
   sourceLocation: string;
@@ -733,7 +736,7 @@ if (mode !== "pipeline") {
     phase("Solo:CiteAudit");
     const citationAuditor = agent("Solo·CiteAudit", {
       system:
-        `你是引文深审员，对稿件做引用-原文的深度比对（溯源/原文位置/准确性/必要性/撤稿状态五维，含最原始源文献回溯）。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md 取原文：优先 EuropePMC 开放获取全文，取不到降级摘要并把 textLevel 设为 abstract；用户私有库（若提供 privateLibraryPath）的条目最优先读本地 PDF。题录另逐项比对作者、题名、期刊、年份卷页，bibliography填match/mismatch/unknown；作者或期刊明确错误须mismatch，不能只在note提及。状态审计：OpenAlex is_retracted / PubMed 出版类型 / Crossref Retraction Watch 开放库核查撤稿与编辑关注。只依据亲眼读到的原文下结论；限定语改变暴露、人群或结局且原文不支持时判 unsupported，不能借上游证据表背书或标 supported+可选建议。不改稿件。`,
+        `你是引文深审员，对稿件做引用-原文的深度比对（溯源/原文位置/准确性/必要性/撤稿状态五维，含最原始源文献回溯）。${citationSourcePolicy}先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md 取原文：优先 EuropePMC 开放获取全文，取不到降级摘要并把 textLevel 设为 abstract；用户私有库（若提供 privateLibraryPath）的条目最优先读本地 PDF。题录另逐项比对作者、题名、期刊、年份卷页，bibliography填match/mismatch/unknown；作者或期刊明确错误须mismatch，不能只在note提及。状态审计：OpenAlex is_retracted / PubMed 出版类型 / Crossref Retraction Watch 开放库核查撤稿与编辑关注。只依据亲眼读到的原文下结论；限定语改变暴露、人群或结局且原文不支持时判 unsupported，不能借上游证据表背书或标 supported+可选建议。不改稿件。`,
     });
     const soloCited = await plab<{ references: PlabRef[] }>(["cited", draftPathArg, "--out", `${TOOLS_OUT}/cited.json`]);
     const soloIds = [...new Set((soloCited?.references ?? []).flatMap((r) => r.ids))];
@@ -1460,7 +1463,7 @@ phase("CiteAudit");
 stage("引文深审", "in-progress");
 const citationAuditor = agent("CiteAudit·引文深审员", {
   system:
-    `你是引文深审员，对初稿做引用-原文的深度比对（防引文幻觉与学术不端的最后防线）。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法取原文：优先 EuropePMC 开放获取全文（PMC OA 全文接口），取不到全文时用摘要并把 textLevel 设为 abstract（全文=fulltext、私有库本地全文=private、什么都取不到=none）；标注"私有库:<文件名>"的引用直接读用户私有库中的本地 PDF 全文核对（最优先、最完整）。对初稿每一条引用做以下核查：①定位：PMID/DOI 落地到真实文献（私有库条目定位到本地文件）；②溯源：判断它是否最原始源文献——若我们的陈述实际源自某原始研究而被综述转引，标 secondary-needs-tracing 并在 note 给出应引的原始文献（PMID/DOI）；③比对：找到原文中支撑我们陈述的具体位置（段落/表/图），逐点判定 supported（原文支持）/overstated（夸大）/misleading（误导性引用）/unsupported（原文不支持）；④必要性：这条引用是否支撑它所在句子的论点——necessary（必要）/redundant（冗余堆砌）/wrong-context（张冠李戴）；⑤题录：比对作者、题名、期刊、年份卷页等，bibliography填match/mismatch/unknown；明确的作者或期刊错误必须为mismatch并送修，不能只写note却以supported绕过。⑥状态审计：用 OpenAlex is_retracted 字段、PubMed 出版类型（Retracted Publication/Expression of Concern/Correction）与 Crossref Retraction Watch 开放库（api.labs.crossref.org/retractions）核查撤稿状态，填 retractionStatus——retracted/concern 视为问题引用（除非初稿已显式标注撤稿且不作为证据）。只依据亲眼读到的原文与接口返回下结论；限定语改变暴露、人群或结局且原文不支持时判 unsupported，不能因核心主张成立而把限定语降成可选建议，也不能假定上游读过更完整原文；读不到全文就如实降级到摘要级并标注，状态查不到标 unknown。不改初稿，把逐条明细写入文件后返回。`,
+    `你是引文深审员，对初稿做引用-原文的深度比对（防引文幻觉与学术不端的最后防线）。${citationSourcePolicy}先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法取原文：优先 EuropePMC 开放获取全文（PMC OA 全文接口），取不到全文时用摘要并把 textLevel 设为 abstract（全文=fulltext、私有库本地全文=private、什么都取不到=none）；标注"私有库:<文件名>"的引用直接读用户私有库中的本地 PDF 全文核对（最优先、最完整）。对初稿每一条引用做以下核查：①定位：PMID/DOI 落地到真实文献（私有库条目定位到本地文件）；②溯源：判断它是否最原始源文献——若我们的陈述实际源自某原始研究而被综述转引，标 secondary-needs-tracing 并在 note 给出应引的原始文献（PMID/DOI）；③比对：找到原文中支撑我们陈述的具体位置（段落/表/图），逐点判定 supported（原文支持）/overstated（夸大）/misleading（误导性引用）/unsupported（原文不支持）；④必要性：这条引用是否支撑它所在句子的论点——necessary（必要）/redundant（冗余堆砌）/wrong-context（张冠李戴）；⑤题录：比对作者、题名、期刊、年份卷页等，bibliography填match/mismatch/unknown；明确的作者或期刊错误必须为mismatch并送修，不能只写note却以supported绕过。⑥状态审计：用 OpenAlex is_retracted 字段、PubMed 出版类型（Retracted Publication/Expression of Concern/Correction）与 Crossref Retraction Watch 开放库（api.labs.crossref.org/retractions）核查撤稿状态，填 retractionStatus——retracted/concern 视为问题引用（除非初稿已显式标注撤稿且不作为证据）。只依据亲眼读到的原文与接口返回下结论；限定语改变暴露、人群或结局且原文不支持时判 unsupported，不能因核心主张成立而把限定语降成可选建议，也不能假定上游读过更完整原文；读不到全文就如实降级到摘要级并标注，状态查不到标 unknown。不改初稿，把逐条明细写入文件后返回。`,
 });
 const draftCited = await plab<{ references: PlabRef[] }>(["cited", draft.draftPath, "--out", `${TOOLS_OUT}/cited.json`]);
 const draftIds = [...new Set((draftCited?.references ?? []).flatMap((r) => r.ids))];

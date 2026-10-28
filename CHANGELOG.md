@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- D48: clarify claim-relative source tracing in both audit modes: a meta-analysis is the direct source of its own pooled result; relayed original findings and reviews misrepresented as original studies still require tracing. Preserve the L1 ground truth and original three-run scores; record the clean-control false positive and dimension-label disagreements.
+
 - D46: keep source annotations out of DOI identity in both tool and workflow; preserve deny and alias checks.
 - Validate reported file paths before use, normalize only verified expected paths with trailing notes, and retain real parenthesized filenames. Require bibliography on fresh audits while preserving legacy unknowns.
 - Count explicitly cleared first-round citation repairs, tolerate bounded event persistence timing, and interpolate the unknown-license count. Record D45 acceptance and remaining real-run/L1 validation.

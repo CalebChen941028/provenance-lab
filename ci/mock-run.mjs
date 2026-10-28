@@ -501,6 +501,15 @@ const check = (ok, what) => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${what}`);
 };
 const outFile = (rel) => path.join(ws, OUT, rel);
+// Prompt-contract coverage is not evidence of real model classification accuracy.
+const auditCalls = calls.filter((c) => c.name.startsWith("CiteAudit") || c.name === "Solo·CiteAudit");
+check(auditCalls.length > 0 && auditCalls.every((c) => c.system.includes("直接引用系统综述/meta分析自身的汇总结果") && c.system.includes("isPrimary=primary") && c.system.includes("冒充原始队列/试验") && c.system.includes("isPrimary=secondary-needs-tracing")), "both audit modes receive claim-relative tracing instructions without treating every meta-analysis as secondhand");
+const sourceVerdictJs = ts.transpileModule(src.slice(src.indexOf("const auditSemanticProblem ="), src.indexOf("const auditReferenceBindings =")) + "\nreturn auditProblem;", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const sourceVerdict = new Function(sourceVerdictJs)();
+const pooledResult = { isPrimary: "primary", accuracy: "supported", necessity: "necessary", retractionStatus: "clean", bibliography: "match", note: "直接引用meta自身汇总结果，保留" };
+check(!sourceVerdict(pooledResult), "a supported pooled result with a direct source passes the unchanged citation predicate");
+check(sourceVerdict({ ...pooledResult, isPrimary: "secondary-needs-tracing", note: "建议保留" }) && sourceVerdict({ ...pooledResult, accuracy: "misleading", note: "把综述写成原始队列，须纠正" }), "retain prose cannot clear secondary sourcing or a misrepresented study design");
+check(sourceVerdict({ ...pooledResult, retractionStatus: "concern" }) && sourceVerdict({ ...pooledResult, bibliography: "mismatch" }), "source clarification does not bypass concern or bibliography failures");
 if (solo) {
   const audit = outFile("05a-citation-audit.json");
   check(fs.existsSync(audit), "solo citation-audit writes 05a-citation-audit.json");
