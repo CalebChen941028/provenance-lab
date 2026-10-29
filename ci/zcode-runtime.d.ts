@@ -13,7 +13,7 @@ declare const artifact: {
   markdown(k: string, c: string, o?: unknown): Promise<void>;
   file(k: string, p: string, o?: unknown): Promise<void>;
 };
-declare const world: { run(cmd: string, args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> };
+declare const world: { run(cmd: string, args: string[], opts?: { timeoutMs?: number }): Promise<{ exitCode: number; stdout: string; stderr: string }> };
 interface Agent { ask<T = string>(prompt: string): Promise<T> }
 declare function agent(name: string, opts: { system: string; model?: ModelRef }): Agent;
 

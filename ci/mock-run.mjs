@@ -52,6 +52,10 @@ const literalPath = process.argv.includes("--literal-path");
 const missingSap = process.argv.includes("--missing-sap");
 const annotatedDoi = process.argv.includes("--annotated-doi");
 const firstCorrection = process.argv.includes("--first-correction");
+const slowArchive = process.argv.includes("--slow-archive");
+const archiveTimeout = process.argv.includes("--archive-timeout");
+const toolException = process.argv.includes("--tool-exception");
+let archiveRunOptions;
 const partialCorrectionUnknown = process.argv.includes("--partial-correction-unknown");
 const partialCorrectionConflict = process.argv.includes("--partial-correction-conflict");
 const partialCorrection = process.argv.includes("--partial-correction") || partialCorrectionUnknown || partialCorrectionConflict;
@@ -481,7 +485,16 @@ const runtime = {
       artifactFiles.push({ name, file }); } },
   files: { read: async (p) => fs.readFileSync(path.join(ws, p), "utf8") },
   world: {
-    run: async (cmd, argv) => {
+    run: async (cmd, argv, opts) => {
+      if (toolException && argv.some((v) => v.includes("skills/provenance-lab/tools/plab.py"))) throw new Error("DriverError: simulated plab transport exception");
+      if ((slowArchive || archiveTimeout) && argv.includes("oa-fetch")) {
+        archiveRunOptions = opts;
+        w(`${OUT}/papers/partial.pdf`, "%PDF-1.7\npartial archive fixture\n");
+        if (archiveTimeout || (opts?.timeoutMs ?? 300000) < 360000) throw new Error("DriverError: world.run 'sh' timed out");
+        const result = { outDir: `${OUT}/papers`, downloaded: [], notDownloaded: [{ id: GOOD[0].id, reason: "no OA in fixture" }] };
+        w(`${OUT}/tool-records/papers.json`, JSON.stringify(result));
+        return { exitCode: 0, stdout: JSON.stringify(result), stderr: "" };
+      }
       const r = spawnSync(cmd, argv, { cwd: ws, env: { ...process.env, HOME: home }, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
       if (Buffer.byteLength(r.stdout ?? "") > 262144 || Buffer.byteLength(r.stderr ?? "") > 262144) throw new Error("world.run output exceeds 256KiB cap");
       return { exitCode: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
@@ -541,6 +554,12 @@ check(!calls.some((c) => c.name.startsWith("Synth") && c.prompt.includes("按协
 const metricsFile = outFile("99-metrics.json");
 check(fs.existsSync(metricsFile), "99-metrics.json written by code");
 check(result.metrics.statsReview.rounds === statisticalInputs.length, "statistical review round count includes the initial review and every actual rereview");
+if (slowArchive || archiveTimeout) {
+  check(archiveRunOptions?.timeoutMs === 1200000, "archiving explicitly permits the 900-second soft budget plus bounded request cleanup instead of the 300-second host default");
+  check(fs.existsSync(outFile("papers/partial.pdf")) && fs.existsSync(outFile("08-papers-manifest.md")) && fs.existsSync(outFile("05-audit-trail.md")), "partial downloads survive and archiving still reaches the manifest and audit package");
+}
+if (archiveTimeout || toolException) check(result.metrics.deterministic.toolFailures > 0 && logs.some((s) => s.includes("调用异常")) && fs.existsSync(outFile("99-metrics.json")), "a thrown tool failure is disclosed and cannot prevent final metrics delivery");
+if (archiveTimeout) check(calls.find((c) => c.name.startsWith("Librarian")).prompt.includes("目录可能已有部分下载") && !calls.find((c) => c.name.startsWith("Librarian")).system.includes("下载已由确定性工具完成"), "timed-out downloads use an honest partial-file inventory rather than claiming tool completion");
 if (fs.existsSync(metricsFile)) check(JSON.stringify(JSON.parse(fs.readFileSync(metricsFile, "utf8"))) === JSON.stringify(result.metrics), "99-metrics.json equals returned metrics");
 check(result.notCovered.some((s) => s.includes("arXiv")), "failed search source is disclosed in notCovered");
 check(stages["文献检索"] === "issues", "search stage marked issues when a source fails");
@@ -604,8 +623,8 @@ if (withTools) {
   check(stages["引文核查"] === (staleRecheck || gateDropEntry || gateFinalNewError || gatePersistentError || badGateRecheck || grillContext || gateAmbiguousId ? "issues" : "passed"), "without tools the gate falls back to the checker's verdict");
   if (staleRecheck) check(result.metrics.citationGate.corrected === 0 && result.notCovered.some((s) => s.includes("意见未能绑定")) && result.findings.some((f) => f.evidence.includes("范围外失败条目")), "out-of-scope re-check failures cannot count as corrected entries");
   const lib = calls.find((c) => c.name.startsWith("Librarian"));
-  check(!lib.system.includes("下载已由确定性工具完成"), "librarian falls back to downloading itself");
-  check(result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.toolFailures === result.metrics.deterministic.toolRuns, "every tool call failed soft");
+  check(lib.system.includes("下载已由确定性工具完成") === slowArchive, "librarian uses the injected completed archive or otherwise falls back when tools are unavailable");
+  check(result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.toolFailures === result.metrics.deterministic.toolRuns - (slowArchive ? 1 : 0), "unavailable tool calls fail soft; an explicitly injected slow archive result is counted separately");
 }
 
 const evidenceFinalPath = outFile("tool-records/evidence-final.json");

@@ -505,10 +505,17 @@ const outputPath = async (reported: string, expected: string): Promise<string> =
   }
   throw new Error(`产物路径不存在或不是普通文件：${reported}；规范路径 ${expected} 未获匹配，不能猜测或制造替代文件`);
 };
-const plab = async <T>(argv: string[]): Promise<T | null> => {
+const plab = async <T>(argv: string[], timeoutMs = 300_000): Promise<T | null> => {
   // world.run限制输出大小；完整结果仍由--out保留，回读超限不得击穿整轮。
   const guarded = `umask 077; plab_stdout=$(mktemp) || exit 1; plab_stderr=$(mktemp) || { rm -f "$plab_stdout"; exit 1; }; trap 'rm -f "$plab_stdout" "$plab_stderr"' EXIT; ${PLAB_CMD} >"$plab_stdout" 2>"$plab_stderr"; plab_exit=$?; if [ "$(wc -c < "$plab_stdout")" -gt 240000 ]; then printf '%s\\n' 'plab stdout exceeds readback limit; full result remains in --out file' >&2; head -c 19000 "$plab_stderr" >&2; exit 1; fi; cat "$plab_stdout"; head -c 20000 "$plab_stderr" >&2; exit "$plab_exit"`;
-  const r = await world.run("sh", ["-c", guarded, "sh", ...argv]);
+  let r: { exitCode: number; stdout: string; stderr: string };
+  try {
+    r = await world.run("sh", ["-c", guarded, "sh", ...argv], { timeoutMs });
+  } catch (error) {
+    toolRuns.push({ cmd: argv[0], ok: false });
+    log(`确定性工具 plab ${argv[0]} 调用异常，结果未确认，保留已有文件并回落到 agent 核查：${String(error).slice(0, 300)}`);
+    return null;
+  }
   let parsed: T | null = null;
   if (r.exitCode === 0) {
     try {
@@ -1581,14 +1588,15 @@ record(analysisManifest?.ok ? `分析冻结清单：${analysisManifest.verified}
 phase("Archiving");
 stage("文献归档", "in-progress");
 // 下载交给确定性工具（PMC Open Access 数据集 + OpenAlex OA 位置，付费墙不绕过）；文献管理员只据其结果写 08 清单
-const oaFetch = await plab<PlabOaFetch>(["oa-fetch", "--draft", draft.draftPath, "--dir", `${OUT}/papers`, "--budget", "900", "--out", `${TOOLS_OUT}/papers.json`]);
+// 900秒是停止新增下载的软预算，解析与在途请求仍需收尾；不能沿用宿主300秒默认超时。
+const oaFetch = await plab<PlabOaFetch>(["oa-fetch", "--draft", draft.draftPath, "--dir", `${OUT}/papers`, "--budget", "900", "--out", `${TOOLS_OUT}/papers.json`], 1_200_000);
 const librarian = agent("Librarian·文献管理员", {
   system: oaFetch
     ? `你负责文献归档清单。下载已由确定性工具完成，结果在 ${TOOLS_OUT}/papers.json（downloaded：文件名/来源/许可证；notDownloaded：未下载原因与 DOI 链接）。你的任务只有一件：读这个 JSON（不要读任何 PDF，不要再下载，不要写下载脚本），据此写 ${OUT}/08-papers-manifest.md：①已下载清单（文件名 ↔ PMID/DOI ↔ 来源 ↔ 许可证）；②未下载清单——Vancouver 格式（作者. 标题. 期刊. 年;卷(期):页. doi）逐条列出，注明未下载原因与建议获取途径（出版社页面订阅、机构图书馆、文献传递），开头提醒用户自行补齐后放入 papers/；③用户私有库已持有的文献单列"已持有"。作者与卷期页从初稿 References 读取。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。`
     : `你负责把初稿引用的文献尽量落成本地 PDF 归档。token 纪律（编排优先）：①下载用批量脚本（curl/wget 列表式）执行，绝不把 PDF 内容读入上下文——你的工作是元数据与清单，不是读论文；②每篇只记录 文件名/PMID-DOI/来源/大小 四项；③查 OA 状态用 API 响应字段（EuropePMC isOpenAccess/PDF 链接、Unpaywall 思路），不逐篇浏览原文页；④清单文件一次写成，不反复重写；⑤硬预算：本环节你自己读入上下文的总内容 <5KB——你的全部工作是【写一个批量下载脚本→跑一次→读它的汇总输出表】三步；下载验证只用文件大小（>50KB）与 file 命令的 PDF 类型判定，禁止打开或读取任何 PDF 内容；OA 判定用 EuropePMC 批量查询（单请求多 id）的 isOpenAccess/fullTextUrlList 字段。先读 ${SKILLS}/literature_search_europepmc/SKILL.md 与 ${SKILLS}/pubmed_database/SKILL.md，按其方法查询每篇的开放获取状态（EuropePMC/PubMed Central OA 全文、出版社免费 PDF、预印本 arXiv/bioRxiv/medRxiv）。可合法免费获取的下载保存到 ${OUT}/papers/，文件名规范：标题_期刊_发表年份.pdf（去除文件名非法字符、总长控制在 120 字符内、同名冲突时末尾附 PMID）。付费墙后无合法免费版本的**绝不绕过付费墙**，列入未下载清单。把结果写入 ${OUT}/08-papers-manifest.md：①已下载清单（文件名 ↔ PMID/DOI 对照）；②未下载清单——标准参考文献格式（Vancouver：作者. 标题. 期刊. 年;卷(期):页. doi）逐条列出，每条注明建议获取途径（如"出版社页面订阅获取""机构图书馆/文献传递"），并在开头提醒用户自行下载补齐后放入 papers/ 目录。语态遵循 natural-voice 学术子集：直陈笃定、术语全篇统一、无AI腔与伪学术黑话、无防御性免责。`,
 });
 const library = await librarian.ask<PaperLibrary>(
-  `初稿引用清单：${draft.draftPath} 的 References（逐条读取）\n引文深审明细（含每条 resolvedSource 与溯源替换后的原始文献）：${citationAudit.auditPath}\n${privatePapers.length > 0 ? `用户私有文献库已持有的文献（这些不需要下载，在 08 清单"已持有"区列出文件路径即可，且不复制进 papers/）：${JSON.stringify(privatePapers)}\n` : ""}下载目录：${OUT}/papers/（自建）\n完成后返回结构化结果。${langNote}`,
+  `初稿引用清单：${draft.draftPath} 的 References（逐条读取）\n引文深审明细（含每条 resolvedSource 与溯源替换后的原始文献）：${citationAudit.auditPath}\n${privatePapers.length > 0 ? `用户私有文献库已持有的文献（这些不需要下载，在 08 清单"已持有"区列出文件路径即可，且不复制进 papers/）：${JSON.stringify(privatePapers)}\n` : ""}下载目录：${OUT}/papers/（自建）\n${oaFetch ? "" : "工具未完成确认；目录可能已有部分下载。先用代码盘点并核对身份/文件类型，保留已有文件，不覆盖、不清空、不凭文件数宣称全量成功；未确认来源或许可证如实列为未知，未完成者记待获取。"}完成后返回结构化结果。${langNote}`,
 );
 // 已下载/待获取数以确定性工具结果为准（文献管理员只负责成文）
 const papersDownloaded = oaFetch ? oaFetch.downloaded.length : library.downloaded.length;
