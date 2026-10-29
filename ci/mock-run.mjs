@@ -52,6 +52,9 @@ const literalPath = process.argv.includes("--literal-path");
 const missingSap = process.argv.includes("--missing-sap");
 const annotatedDoi = process.argv.includes("--annotated-doi");
 const firstCorrection = process.argv.includes("--first-correction");
+const partialCorrectionUnknown = process.argv.includes("--partial-correction-unknown");
+const partialCorrectionConflict = process.argv.includes("--partial-correction-conflict");
+const partialCorrection = process.argv.includes("--partial-correction") || partialCorrectionUnknown || partialCorrectionConflict;
 // Exercises coverage reporting with real tools but no complete statistical report.
 const noStats = process.argv.includes("--no-stats");
 // Run with --no-tools to exercise an auditor repeating an out-of-scope old failure.
@@ -157,6 +160,8 @@ const draftV2 = draftV1
   .replace(/5\. Obokata[^\n]*\n6\. Wakefield[^\n]*\n7\./, "5.");
 
 const calls = [];
+let lastAnalysisResult;
+const statisticalInputs = [];
 const artifactFiles = [];
 const stages = {};
 const logs = [];
@@ -255,6 +260,9 @@ function respond(name, prompt, opts) {
       return { included, excludedSummary: "0", noveltyStatement: "空白。", riskOfBias: "-", gaps: [], evidencePath: `${OUT}/02-evidence-table.md` };
     }
     case "CiteGate": {
+      if (partialCorrection && !prompt.includes("逐个 checkId 回传 checks（每键一次）：")) return prompt.startsWith("修正后的证据表")
+        ? { passed: false, checked: 8, failures: [`${GOOD[1].id}：finding 与摘要不符（汇总 r 写错），建议改写后保留`], failedIds: [GOOD[1].id], passedIds: partialCorrectionUnknown ? [] : partialCorrectionConflict ? [GOOD[1].id] : [GOOD[0].id] }
+        : { passed: false, checked: 8, failures: [`${GOOD[0].id}：首轮阴性结论需修正后保留`, `${GOOD[1].id}：首轮汇总值需改写`], failedIds: [GOOD[0].id, GOOD[1].id] };
       if (firstCorrection) return prompt.startsWith("修正后的证据表")
         ? { passed: true, checked: 8, failures: [], failedIds: [] }
         : { passed: false, checked: 8, failures: [`${GOOD[1].id}：可修正的阴性转述错误，修正后保留`], failedIds: [GOOD[1].id] };
@@ -329,10 +337,14 @@ function respond(name, prompt, opts) {
         w(`${OUT}/04-analysis/CHECKSUMS-analysis.sha256`, `${createHash("sha256").update('{"r":0.2}\n').digest("hex")}  tables/summary.json\n`);
         w(`${OUT}/04-analysis/summary_report.md`, "# Analysis output entry\n");
       }
-      return { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: [figureRepair ? figureSourceFixed ? "原图源码已正式修订，结果摘要 r=.20" : "原图源码问题仍未关闭，结果摘要 r=.20" : statsConflict ? statsMetadataFixed ? "主结论转录已更正 r=.20" : "主结论转录错误 r=.99" : "r = .20"], decisions: figureRepair ? ["原分析图件计算正式修订与重冻结记录"] : [], reproducibility: "exit 0", caveats: figureRepair && figureSourcePersistent ? FIGURE_SOURCE : figureSourceLate ? ANALYSIS_CAVEAT : "" };
+      const response = { realData: false, scriptPath: `${OUT}/04-analysis/run.py`, outputsPath: analysisFilePath ? `${OUT}/04-analysis/summary_report.md` : `${OUT}/04-analysis`, keyFindings: [figureRepair ? figureSourceFixed ? "原图源码已正式修订，结果摘要 r=.20" : "原图源码问题仍未关闭，结果摘要 r=.20" : statsConflict ? statsMetadataFixed ? "主结论转录已更正 r=.20" : "主结论转录错误 r=.99" : "r = .20"], decisions: figureRepair ? ["原分析图件计算正式修订与重冻结记录"] : ["同时报告两项检验；不删字重建该数组"], reproducibility: "exit 0", caveats: figureRepair && figureSourcePersistent ? FIGURE_SOURCE : figureSourceLate ? ANALYSIS_CAVEAT : "" };
+      lastAnalysisResult = structuredClone(response);
+      return response;
     }
     case "StatRev": {
       statReviewCount++;
+      const inputPath = prompt.match(/provenance-lab-output\/tool-records\/statistical-review-input-\d+\.json/)?.[0];
+      statisticalInputs.push({ path: inputPath, snapshot: inputPath && fs.existsSync(path.join(ws, inputPath)) ? JSON.parse(fs.readFileSync(path.join(ws, inputPath), "utf8")) : null, expected: structuredClone(lastAnalysisResult) });
       const majorIssues = figureSourceError && prompt.startsWith("图表原分析修订后请独立复核") && !figureSourceFixed ? [FIGURE_SOURCE] : statsConflict && !statsSummaryErrors && (statsPersistentMajor || !statsMetadataFixed) ? [STAT_MAJOR] : [];
       const analysisSummaryIssues = statsSummaryErrors && (statsSummaryPersistent || !statsMetadataFixed) ? [STAT_MAJOR] : [];
       // The intentionally contradictory verdict models the D42 response: severity comes from the issue list.
@@ -523,9 +535,12 @@ if (solo) {
   if (!keepSolo) fs.rmSync(tmp, { recursive: true, force: true });
   process.exit(failures.length === 0 ? 0 : 1);
 }
+check(statisticalInputs.length === calls.filter((c) => c.name.startsWith("StatRev")).length && statisticalInputs.length > 0 && statisticalInputs.every((v) => v.snapshot && JSON.stringify(v.snapshot.analysis.decisions) === JSON.stringify(v.expected.decisions) && JSON.stringify(v.snapshot.analysis.keyFindings) === JSON.stringify(v.expected.keyFindings)), "every statistical review receives a code-written current response, including exact decision characters and repaired metadata");
+check(new Set(statisticalInputs.map((v) => v.path)).size === statisticalInputs.length && statisticalInputs.every((v) => v.path && JSON.parse(fs.readFileSync(outFile(v.path.slice(OUT.length + 1)), "utf8")).analysis.decisions.join("\n") === v.snapshot.analysis.decisions.join("\n")) && calls.filter((c) => c.name.startsWith("StatRev")).every((c) => c.prompt.includes("禁止先手工重建/重打提交数组")), "review input history is retained per round and the reviewer must compare actual files instead of reconstructing the submission");
 check(!calls.some((c) => c.name.startsWith("Synth") && c.prompt.includes("按协议从证据表剔除")), "final exclusion is applied by code without asking the synthesizer to rewrite the table again");
 const metricsFile = outFile("99-metrics.json");
 check(fs.existsSync(metricsFile), "99-metrics.json written by code");
+check(result.metrics.statsReview.rounds === statisticalInputs.length, "statistical review round count includes the initial review and every actual rereview");
 if (fs.existsSync(metricsFile)) check(JSON.stringify(JSON.parse(fs.readFileSync(metricsFile, "utf8"))) === JSON.stringify(result.metrics), "99-metrics.json equals returned metrics");
 check(result.notCovered.some((s) => s.includes("arXiv")), "failed search source is disclosed in notCovered");
 check(stages["文献检索"] === "issues", "search stage marked issues when a source fails");
@@ -764,6 +779,10 @@ if (annotatedDoi) {
   if (withTools) check(result.metrics.deterministic.whitelist.outside === 0, "annotated allowed method DOI remains in the whitelist while actual outside sources are still corrected");
 }
 if (firstCorrection) check(result.metrics.citationGate.corrected === 1 && result.metrics.citationGate.excluded === 0 && result.metrics.citationGate.pending === 0, "a first-round problem independently cleared in round two counts as corrected and retained");
+if (partialCorrection) {
+  check(result.metrics.citationGate.corrected === (partialCorrectionUnknown || partialCorrectionConflict ? 1 : 2), "explicitly cleared first-round entries are counted even when another entry needs the final repair; omission or a conflicting pass cannot inflate counts");
+  check(result.metrics.citationGate.excluded === 0 && result.metrics.citationGate.pending === 0 && calls.filter((c) => c.name.startsWith("CiteGate")).length === 3, "partial correction accounting preserves evidence and the bounded final recheck");
+}
 check(!logs.some((s) => s.includes("${unknownLicenses}")), "paper archiving reports the numeric unknown-license count rather than a literal placeholder");
 const keep = process.argv.includes("--keep");
 console.log(`\n${failures.length === 0 ? "ALL PASS" : `${failures.length} FAILED`} (${withTools ? "with tools" : "no tools"}${keep ? `; workspace kept at ${ws}` : ""})`);

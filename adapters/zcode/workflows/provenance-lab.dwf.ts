@@ -201,6 +201,8 @@ interface CitationCheck {
   failures: string[];
   /** 待修正项对应的条目 id（与 PaperRecord.id 逐字一致），含轻微转述/限定语问题；不是直接剔除清单。 */
   failedIds: string[];
+  /** 复核时逐条明确通过的首轮送修ID；未复核、仍有问题或身份不明者不填，不能以未列failedIds代替。 */
+  passedIds?: string[];
 }
 
 interface CitationRecheck {
@@ -1065,7 +1067,7 @@ if (!citation.passed) {
   checkEvidenceChanges(beforeCorrection, evidence, removableHardIds);
   gateRecs = await gateResolve(evidence.included, "resolve-evidence-r2");
   citation = withDeterministic(
-    await citationChecker.ask<CitationCheck>(`修正后的证据表：${JSON.stringify(evidence.included)}${gateRecs ? detNoteFor(gateRecs) : ""}\n请复核失败项与抽查其余条目。`),
+    await citationChecker.ask<CitationCheck>(`修正后的证据表：${JSON.stringify(evidence.included)}${gateRecs ? detNoteFor(gateRecs) : ""}\n请复核失败项与抽查其余条目。首轮非硬失败送修ID：${JSON.stringify(firstCorrectionIds)}。将本轮逐条明确核对通过的这些ID填passedIds；未实际复核或仍有任何问题者不填，不得凭未列failedIds推定通过。`),
     evidence.included,
     gateRecs,
   );
@@ -1081,7 +1083,12 @@ const failuresAbout = (ids: string[], all: string[]): string[] => {
   return hit.length > 0 ? hit : all;
 };
 let gateExcludedIds: string[] = initialHardFailures.map((f) => f.id);
-let gateCorrectedIds: string[] = citation.passed ? firstCorrectionIds.filter((id) => !isGatePending(id)) : [];
+const explicitlyPassedIds = Array.isArray(citation.passedIds) ? citation.passedIds.filter((id) => typeof id === "string") : [];
+let gateCorrectedIds: string[] = firstCorrectionIds.filter((id) =>
+  !isGatePending(id) && evidence.included.some((p) => gateIdsMatch(id, p.id, gateRecs)) &&
+  !citation.failedIds.some((failed) => gateIdsMatch(id, failed, gateRecs)) &&
+  (citation.passed || explicitlyPassedIds.filter((passed) => gateIdsMatch(id, passed, gateRecs)).length === 1),
+);
 if (!citation.passed) {
   const hardKeys = new Set(hardFailures(evidence.included, gateRecs).map((d) => normKey(d.id)));
   const persistent = citation.failedIds.filter((id) => hardKeys.has(normKey(id)));
@@ -1248,8 +1255,10 @@ const diagnoser = agent("Diag·根因诊断员", {
 });
 const statisticalReviewHistory: { raw: Review; effective: Review }[] = [];
 const askStatsReview = async (prompt: string): Promise<Review> => {
-  const raw = await statsReviewer.ask<Review>(prompt);
-  const effective: Review = { ...raw, verdict: raw.majorIssues.length > 0 ? "major-revision" : raw.verdict };
+  const inputPath = `${TOOLS_OUT}/statistical-review-input-${statisticalReviewHistory.length + 1}.json`;
+  const inputSaved = await writeFile(inputPath, JSON.stringify({ sap, analysis }, null, 2));
+  const raw = await statsReviewer.ask<Review>(`${prompt}\n本轮实际提交的SAP与AnalysisResult由代码原样存于 ${inputPath}${inputSaved ? "" : "（写入失败）"}。比对keyFindings/decisions须程序直接读取该JSON与实际冻结输出；禁止先手工重建/重打提交数组再拿重建件作原件，禁止用旧轮转录代替本轮。区分字符串差异与科学含义错误；声称不符须给出两份实际文件路径及字段索引，不改文件。`);
+  const effective: Review = { ...raw, verdict: raw.majorIssues.length > 0 ? "major-revision" : raw.verdict, analysisSummaryIssues: [...(raw.analysisSummaryIssues ?? []), ...(!inputSaved ? ["本轮统计审稿输入归档失败，原始提交未能落盘核对"] : [])] };
   statisticalReviewHistory.push({ raw, effective });
   await writeFile(`${TOOLS_OUT}/statistical-reviews.json`, JSON.stringify(statisticalReviewHistory, null, 2));
   return effective;
@@ -1624,7 +1633,7 @@ const metricsPartial = {
   evidenceIncluded: evidence.included.length,
   citationGate: { checked: citation.checked, passed: gatePassed, failures: citationFailures.length, unboundNotes: unresolvedGateNotes.size, corrected: gateCorrectedIds.length, excluded: gateExcludedIds.length, pending: gatePendingIds.size, citable: citableEvidence.length },
   figureReview: { sourceRepairs: figureSourceRepairs, openSourceIssues: figureSourceIssues.length },
-  statsReview: { verdict: statsReview.verdict, rounds: statsRound + figureSourceRepairs, openMajors: statsReview.majorIssues.length, openSummaryIssues: (statsReview.analysisSummaryIssues ?? []).length, pendingMinorNotes: statsReview.minorIssues.length },
+  statsReview: { verdict: statsReview.verdict, rounds: statisticalReviewHistory.length, openMajors: statsReview.majorIssues.length, openSummaryIssues: (statsReview.analysisSummaryIssues ?? []).length, pendingMinorNotes: statsReview.minorIssues.length },
   peerReview: { rounds: round, openMajors: openMajors.length, pendingMinorNotes: allReviews.reduce((n, r) => n + r.minorIssues.length, 0) },
   grill: { questions: grill.length, unanswered: rebuttal.unanswered.length },
   citationAudit: { entries: citationAudit.entries.length, problems: citationAudit.problems, coverageIssues: citationAuditIssues.length, removed: removedAuditEntries.length, bibliographyUnknown },

@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- D49: archive each statistical review input directly from the current structured result, prohibit reconstructed submissions as comparison evidence, and count explicitly cleared first-round citation repairs during partially failing rechecks. Count every actual statistical review, including the initial review. Preserve failure and pending boundaries.
+
 - D48: clarify claim-relative source tracing in both audit modes: a meta-analysis is the direct source of its own pooled result; relayed original findings and reviews misrepresented as original studies still require tracing. Preserve the L1 ground truth and original three-run scores; record the clean-control false positive and dimension-label disagreements.
 
 - D46: keep source annotations out of DOI identity in both tool and workflow; preserve deny and alias checks.
