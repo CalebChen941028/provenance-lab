@@ -29,6 +29,10 @@ jobs:
       - name: Mock run without tools (every gate must fall back)
         run: |
           node ci/mock-run.mjs --no-tools
+          node ci/mock-run.mjs --no-tools --handoff-drift
+          node ci/mock-run.mjs --no-tools --handoff-late-drift
+          node ci/mock-run.mjs --no-tools --handoff-missing
+          node ci/mock-run.mjs --no-tools --handoff-reformat
           node ci/mock-run.mjs --no-tools --slow-archive
           node ci/mock-run.mjs --no-tools --archive-timeout
           node ci/mock-run.mjs --no-tools --tool-exception

@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- D51: Preserve reviewed analysis handoffs and detect downstream content changes before audit and delivery; retain changed files and disclose unconfirmed checks.
+
 - D50: give OA archiving an explicit bounded host timeout above its unchanged soft download budget; disclose thrown tool failures and preserve partial files while allowing audit and metrics delivery. Real host recovery remains unverified.
 
 - D49: archive each statistical review input directly from the current structured result, prohibit reconstructed submissions as comparison evidence, and count explicitly cleared first-round citation repairs during partially failing rechecks. Count every actual statistical review, including the initial review. Preserve failure and pending boundaries.

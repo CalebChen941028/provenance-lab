@@ -52,6 +52,10 @@ const literalPath = process.argv.includes("--literal-path");
 const missingSap = process.argv.includes("--missing-sap");
 const annotatedDoi = process.argv.includes("--annotated-doi");
 const firstCorrection = process.argv.includes("--first-correction");
+const handoffDrift = process.argv.includes("--handoff-drift");
+const handoffLateDrift = process.argv.includes("--handoff-late-drift");
+const handoffMissing = process.argv.includes("--handoff-missing");
+const handoffReformat = process.argv.includes("--handoff-reformat");
 const slowArchive = process.argv.includes("--slow-archive");
 const archiveTimeout = process.argv.includes("--archive-timeout");
 const toolException = process.argv.includes("--tool-exception");
@@ -371,6 +375,13 @@ function respond(name, prompt, opts) {
         ? { passed: true, issues: [], sourceIssues: [] }
         : { passed: false, issues: ["图中文字过小，需整改"], sourceIssues: [] };
     case "Writer": {
+      const handoffPath = path.join(ws, OUT, "tool-records/analysis-result-final.json");
+      if (handoffDrift || handoffReformat) {
+        const saved = JSON.parse(fs.readFileSync(handoffPath, "utf8"));
+        if (handoffDrift) saved.decisions = ["下游自行更正，未取得统计复审关闭"];
+        const reordered = Object.fromEntries(Object.entries(saved).reverse());
+        fs.writeFileSync(handoffPath, JSON.stringify(reordered));
+      }
       if (prompt.includes("答辩拷问问题清单")) {
         const context = archivedContext();
         writerReadArchivedContext = grillContext && context.available && [STAT_MINOR, PEER_MINOR, UNBOUND_NOTE].every((note) => context.text.includes(note));
@@ -449,10 +460,12 @@ function respond(name, prompt, opts) {
       w(`${OUT}/08-papers-manifest.md`, "# 08\n");
       return { downloaded: [], notDownloaded: [], manifestPath: `${OUT}/08-papers-manifest.md`, papersDir: `${OUT}/papers` };
     case "Archivist":
+      if (handoffMissing) fs.rmSync(path.join(ws, OUT, "tool-records/analysis-result-final.json"), { force: true });
       w(`${OUT}/00-README.md`, "# 00\n");
       w(`${OUT}/05-audit-trail.md`, "# 05\n");
       return { manifestPath: `${OUT}/00-README.md`, auditPath: `${OUT}/05-audit-trail.md`, mermaid: "" };
     case "Scribe":
+      if (handoffLateDrift) w(`${OUT}/tool-records/analysis-result-final.json`, "{invalid final handoff");
       return "# 总结";
     case "Solo": {
       // a perfect auditor: one entry per seeded case carrying the expected verdict
@@ -803,6 +816,21 @@ if (partialCorrection) {
   check(result.metrics.citationGate.excluded === 0 && result.metrics.citationGate.pending === 0 && calls.filter((c) => c.name.startsWith("CiteGate")).length === 3, "partial correction accounting preserves evidence and the bounded final recheck");
 }
 check(!logs.some((s) => s.includes("${unknownLicenses}")), "paper archiving reports the numeric unknown-license count rather than a literal placeholder");
+
+if (!solo) {
+  const h = result.metrics.deterministic.analysisHandoff;
+  const drift = handoffDrift || handoffLateDrift || handoffMissing;
+  check(h?.available === true && h.unchanged === !drift, "handoff content is compared at both boundaries; formatting alone does not change its identity");
+  if (drift) {
+    check((h?.changedFields.length ?? 0) > 0 && result.findings.some((f) => f.what === "分析交接记录发生变化或未确认" && f.status === "verified") && result.notCovered.some((x) => x.includes("分析交接记录")), "early, late and missing handoffs are disclosed in final metrics/findings/coverage");
+    const reviewedPath = outFile("tool-records/analysis-result-reviewed.json");
+    const reviewed = fs.existsSync(reviewedPath) ? JSON.parse(fs.readFileSync(reviewedPath, "utf8")) : null;
+    check(reviewed !== null && !JSON.stringify(reviewed).includes("下游自行更正"), "code-authored reviewed snapshot preserves the input instead of adopting a writer's edit");
+    check(handoffMissing ? !fs.existsSync(outFile("tool-records/analysis-result-final.json")) : fs.readFileSync(outFile("tool-records/analysis-result-final.json"), "utf8").includes(handoffLateDrift ? "{invalid" : "下游自行更正"), "changed or missing handoff is preserved without silent restoration");
+  }
+  check(["Writer", "Archivist", "Scribe"].every((role) => calls.some((c) => c.name.startsWith(role) && c.system.includes("交接JSON"))), "downstream writing roles cannot rewrite code-authored handoff records");
+}
+
 const keep = process.argv.includes("--keep");
 console.log(`\n${failures.length === 0 ? "ALL PASS" : `${failures.length} FAILED`} (${withTools ? "with tools" : "no tools"}${keep ? `; workspace kept at ${ws}` : ""})`);
 if (!keep) fs.rmSync(tmp, { recursive: true, force: true });
