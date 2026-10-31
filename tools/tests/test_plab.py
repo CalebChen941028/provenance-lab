@@ -42,6 +42,31 @@ class Identifiers(unittest.TestCase):
         self.assertEqual(plab.extract_ids("10.1038/ejcn.2014.50.〔证据表〕；10.1119/perc.2020.pr.Stang.〔来源；待补〕"),
                          ["DOI:10.1038/ejcn.2014.50", "DOI:10.1119/perc.2020.pr.stang"])
         self.assertEqual(plab.norm_id("10.1038/ejcn.2014.50.〔证据表〕"), ("doi", "10.1038/ejcn.2014.50"))
+    def test_pipe_separates_doi_from_supplemental_identifiers(self):
+        for separator in ("|", "｜"):
+            with self.subTest(separator=separator):
+                text = "DOI:10.1000/example" + separator + "arXiv:2401.00001"
+                self.assertEqual(plab.norm_id(text), ("doi", "10.1000/example"))
+                self.assertEqual(plab.extract_ids(text), ["DOI:10.1000/example"])
+                self.assertEqual(plab.extract_ids("10.1000/a" + separator + "10.1000/b"),
+                                 ["DOI:10.1000/a", "DOI:10.1000/b"])
+
+    def test_pipe_resolution_uses_doi_and_does_not_bypass_deny(self):
+        doi = "10.1000/example"
+        composite = "DOI:" + doi + "｜arXiv:2401.00001"
+        with patch.object(plab, "_openalex", return_value=({}, True)) as oa, \
+             patch.object(plab, "_crossref", return_value=("ok", {"title": ["Example"]})) as cr:
+            result = plab.resolve_records([{"id": composite}])[0]
+        oa.assert_called_once()
+        self.assertEqual(oa.call_args.args[2], [doi])
+        cr.assert_called_once()
+        self.assertEqual(cr.call_args.args[1], doi)
+        self.assertTrue(result["found"])
+        text = "## References\n1. Example. " + composite + "\n"
+        denied = plab.whitelist_check(text, [doi], expand=False, deny=[doi])
+        self.assertFalse(denied["ok"])
+        self.assertEqual(len(denied["outside"]), 1)
+
     def test_norm_id(self):
         self.assertEqual(plab.norm_id("PMID: 9500320"), ("pmid", "9500320"))
         self.assertEqual(plab.norm_id("9500320"), ("pmid", "9500320"))

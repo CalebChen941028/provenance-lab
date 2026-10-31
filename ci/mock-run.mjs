@@ -50,6 +50,7 @@ const solo = process.argv.includes("--solo");
 const annotatedPaths = process.argv.includes("--annotated-paths");
 const literalPath = process.argv.includes("--literal-path");
 const missingSap = process.argv.includes("--missing-sap");
+const pipeDoi = process.argv.includes("--pipe-doi");
 const annotatedDoi = process.argv.includes("--annotated-doi");
 const firstCorrection = process.argv.includes("--first-correction");
 const handoffDrift = process.argv.includes("--handoff-drift");
@@ -206,7 +207,7 @@ const archivedContext = () => {
   }
 };
 
-const decorateDraft = (text) => annotatedDoi ? text.replaceAll("10.1111/j.2517-6161.1995.tb02031.x", "10.1111/j.2517-6161.1995.tb02031.x.〔SAP；方法依据〕") : text;
+const decorateDraft = (text) => pipeDoi ? text.replaceAll("10.1111/j.2517-6161.1995.tb02031.x", "10.1111/j.2517-6161.1995.tb02031.x｜arXiv:2401.00001") : annotatedDoi ? text.replaceAll("10.1111/j.2517-6161.1995.tb02031.x", "10.1111/j.2517-6161.1995.tb02031.x.〔SAP；方法依据〕") : text;
 function respond(name, prompt, opts) {
   calls.push({ name, prompt, system: opts.system ?? "" });
   const role = name.split("·")[0];
@@ -797,6 +798,9 @@ if (statsSummaryPersistent) {
 }
 if (largeToolOutput) check(fs.statSync(outFile("tool-records/sources-before.json")).size > 262144 && result.metrics.deterministic.toolFailures > 0 && result.metrics.deterministic.sourceIntegrity.available === false, "oversized tool output stays on disk and falls back without killing the run or claiming snapshot verification");
 check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("完整回归模型残差")) && calls.some((c) => c.name.startsWith("ArtDir") && c.system.includes("CPR")) && calls.some((c) => c.name.startsWith("VisualQA") && c.system.includes("完整模型残差")), "statistical and visual reviewers check the actual plot formula rather than copying a wrong original");
+for (const role of ["Analyst", "StatRev", "ArtDir", "VisualQA", "Writer", "Reviewer", "Examiner", "Archivist", "Scribe"]) {
+  check(calls.filter((c) => c.name.startsWith(role)).every((c) => c.system.includes("禁止head/cat/tail/grep/sed原始CSV") && c.system.includes("plab.py schema") && c.system.includes("模拟数据也适用")), `${role} receives explicit data-row restrictions and a schema alternative; this is a prompt contract, not host isolation`);
+}
 check(calls.some((c) => c.name.startsWith("StatRev") && c.system.includes("严格code-to-data") && c.system.includes("禁止grep/head/cat原始CSV") && c.system.includes("核对布尔")), "the statistical reviewer checks raw data through code and aggregate or boolean results without exposing CSV rows");
 if (annotatedPaths) {
   const sapArtifact = artifactFiles.find((a) => a.name === "sap");
@@ -804,6 +808,12 @@ if (annotatedPaths) {
   check(artifactFiles.find((a) => a.name === "draft")?.file === `${OUT}/06-draft.md` && fs.existsSync(outFile("tool-records/output-paths.json")), "revised draft paths are normalized with an inspectable record before downstream use");
 }
 if (literalPath) check(artifactFiles.find((a) => a.name === "sap")?.file === `${OUT}/03-sap (frozen).md`, "an existing literal filename with parentheses is preserved instead of stripped");
+if (pipeDoi) {
+  const extract = src.slice(src.indexOf("const idsInText ="), src.indexOf("const auditSemanticProblem ="));
+  const fn = new Function(ts.transpileModule(`${extract} return idsInText;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText)();
+  for (const separator of ["|", "｜"]) check(JSON.stringify(fn(`10.1000/kept${separator}arXiv:2401.00001`)) === JSON.stringify(["DOI:10.1000/kept"]), "workflow DOI stops at the pipe without verifying the supplemental identifier");
+  if (withTools) check(result.metrics.deterministic.whitelist.outside === 0, "pipe-separated method DOI stays identified without changing whitelist policy");
+}
 if (annotatedDoi) {
   const extract = src.slice(src.indexOf("const idsInText ="), src.indexOf("const auditSemanticProblem ="));
   const fn = new Function(ts.transpileModule(`${extract} return idsInText;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText)();

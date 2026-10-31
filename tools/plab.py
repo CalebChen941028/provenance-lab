@@ -53,7 +53,7 @@ TIMEOUT = 30
 
 # ── identifiers ──────────────────────────────────────────────────────────────
 
-_DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>，。；：、（）【】《》「」〔〕]+)", re.I)
+_DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>，。；：、（）【】《》「」〔〕|｜]+)", re.I)
 _PMID_RE = re.compile(r"(?:\bPMID\s*[:：]?\s*|pubmed\.ncbi\.nlm\.nih\.gov/)(\d{1,9})\b", re.I)
 _PMCID_RE = re.compile(r"\b(PMC\d{4,9})\b", re.I)
 _TRAIL = ".,;:)]}>'\""

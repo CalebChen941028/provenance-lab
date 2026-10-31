@@ -40,6 +40,7 @@ jobs:
           node ci/mock-run.mjs --no-tools --literal-path
           node ci/mock-run.mjs --no-tools --missing-sap
           node ci/mock-run.mjs --no-tools --annotated-doi
+          node ci/mock-run.mjs --no-tools --pipe-doi
           node ci/mock-run.mjs --no-tools --first-correction
           node ci/mock-run.mjs --no-tools --partial-correction
           node ci/mock-run.mjs --no-tools --partial-correction-unknown
